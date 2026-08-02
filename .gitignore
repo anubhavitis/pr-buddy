@@ -1,0 +1,5 @@
+/pr-buddy
+/dist/
+*.test
+*.out
+.DS_Store
