@@ -5,8 +5,19 @@ isolated git worktree at the PR's real head, runs a read-only Claude review agai
 it, caches the result as a versioned artifact, and opens the review beside the diff
 in VS Code.
 
-Status: **in development.** The artifact layer exists; the worktree lifecycle,
-review runner, and editor seam do not yet.
+Status: **unverified.** The tool is built end to end, but it has not yet been run
+against a real pull request. Nothing about the hypothesis has been tested.
+
+## Usage
+
+```sh
+pr-buddy 1234                     # review PR 1234 in the current repository
+pr-buddy -repo acme/widgets 1234  # review a PR elsewhere
+pr-buddy -force 1234              # ignore a valid cached review
+pr-buddy -open=false 1234         # print results without opening VS Code
+```
+
+Re-running for an unchanged PR reuses the cached review and invokes no model.
 
 ## Why
 
