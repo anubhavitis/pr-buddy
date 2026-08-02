@@ -125,6 +125,24 @@ func WriteReview(dir string, r *Review) error {
 	return writeJSONAtomic(filepath.Join(dir, reviewFile), r)
 }
 
+// WriteRaw atomically persists a review without requiring it to be complete.
+//
+// It exists for in-flight and failed states, which are deliberately not
+// valid-as-cache: Usable rejects anything that is not complete, so a partial
+// artifact written here can never later be served as a finished review.
+func WriteRaw(dir string, r *Review) error {
+	if !r.Status.Valid() {
+		return fmt.Errorf("invalid status %q", r.Status)
+	}
+	if r.Status == StatusComplete {
+		return errors.New("use WriteReview for complete reviews")
+	}
+	r.SchemaVersion = Version
+	r.Provenance.SchemaVersion = Version
+	r.CacheKey = r.Provenance.CacheKey()
+	return writeJSONAtomic(filepath.Join(dir, reviewFile), r)
+}
+
 // ReadReview loads the review stored in dir.
 func ReadReview(dir string) (*Review, error) {
 	var r Review
