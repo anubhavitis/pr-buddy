@@ -17,6 +17,8 @@ export interface Org {
 export interface Repo {
   name: string;
   name_with_owner: string;
+  /** RFC 3339 last-push time; empty when never pushed. Repos arrive newest first. */
+  pushed_at: string;
   private: boolean;
 }
 
@@ -95,17 +97,24 @@ export interface StoredReview {
 }
 
 export class PrBuddyError extends Error {
-  constructor(message: string, readonly stderr: string) {
+  constructor(
+    message: string,
+    readonly stderr: string,
+  ) {
     super(message);
   }
 }
 
 function binary(): string {
-  return vscode.workspace.getConfiguration("prBuddy").get<string>("binaryPath", "pr-buddy");
+  return vscode.workspace
+    .getConfiguration("prBuddy")
+    .get<string>("binaryPath", "pr-buddy");
 }
 
 function model(): string {
-  return vscode.workspace.getConfiguration("prBuddy").get<string>("model", "claude-opus-5");
+  return vscode.workspace
+    .getConfiguration("prBuddy")
+    .get<string>("model", "claude-opus-5");
 }
 
 /**
@@ -114,7 +123,11 @@ function model(): string {
  * Reviews take minutes, so timeoutMs is generous by default and the token
  * allows a caller to abandon a run that is no longer wanted.
  */
-function run<T>(args: string[], token?: vscode.CancellationToken, timeoutMs = 120_000): Promise<T> {
+function run<T>(
+  args: string[],
+  token?: vscode.CancellationToken,
+  timeoutMs = 120_000,
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       binary(),
@@ -132,7 +145,12 @@ function run<T>(args: string[], token?: vscode.CancellationToken, timeoutMs = 12
         try {
           resolve(JSON.parse(stdout) as T);
         } catch {
-          reject(new PrBuddyError("pr-buddy returned output that is not JSON", stdout.slice(0, 2000)));
+          reject(
+            new PrBuddyError(
+              "pr-buddy returned output that is not JSON",
+              stdout.slice(0, 2000),
+            ),
+          );
         }
       },
     );
@@ -140,14 +158,25 @@ function run<T>(args: string[], token?: vscode.CancellationToken, timeoutMs = 12
   });
 }
 
-export async function listOrgs(token?: vscode.CancellationToken): Promise<Org[]> {
+export async function listOrgs(
+  token?: vscode.CancellationToken,
+): Promise<Org[]> {
   const out = await run<{ orgs: Org[] }>(["list"], token, 30_000);
   return out.orgs ?? [];
 }
 
-export async function listRepos(org: string, token?: vscode.CancellationToken): Promise<Repo[]> {
-  const limit = vscode.workspace.getConfiguration("prBuddy").get<number>("repoLimit", 100);
-  const out = await run<{ repos: Repo[] }>(["list", "-org", org, "-limit", String(limit)], token, 60_000);
+export async function listRepos(
+  org: string,
+  token?: vscode.CancellationToken,
+): Promise<Repo[]> {
+  const limit = vscode.workspace
+    .getConfiguration("prBuddy")
+    .get<number>("repoLimit", 100);
+  const out = await run<{ repos: Repo[] }>(
+    ["list", "-org", org, "-limit", String(limit)],
+    token,
+    60_000,
+  );
   return out.repos ?? [];
 }
 
@@ -155,7 +184,9 @@ export async function listPullRequests(
   repo: string,
   token?: vscode.CancellationToken,
 ): Promise<PullRequest[]> {
-  const limit = vscode.workspace.getConfiguration("prBuddy").get<number>("prLimit", 50);
+  const limit = vscode.workspace
+    .getConfiguration("prBuddy")
+    .get<number>("prLimit", 50);
   const out = await run<{ pull_requests: PullRequest[] }>(
     ["list", "-repo", repo, "-limit", String(limit)],
     token,

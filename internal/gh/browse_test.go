@@ -28,6 +28,27 @@ func TestOrgsIncludesViewerFirst(t *testing.T) {
 	}
 }
 
+// GitHub reports no activity timestamp for an organization, and deriving one
+// would cost a request per org. Alphabetical is the cheap predictable order;
+// the viewer stays pinned first regardless.
+func TestOrgsSortsAlphabeticallyAfterViewer(t *testing.T) {
+	f := xexec.NewFake()
+	f.RespondOK("gh api user --jq", "anubhavitis\n")
+	f.RespondOK("gh api user/orgs", "zulu\nOutcome-xyz\nalpha\n")
+
+	orgs, err := New(f).Orgs(context.Background())
+	if err != nil {
+		t.Fatalf("Orgs: %v", err)
+	}
+	got := []string{orgs[0].Login, orgs[1].Login, orgs[2].Login, orgs[3].Login}
+	want := []string{"anubhavitis", "alpha", "Outcome-xyz", "zulu"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("orgs = %v, want %v (viewer first, then case-insensitive A-Z)", got, want)
+		}
+	}
+}
+
 // Org membership is not readable under every token scope; the viewer's own
 // account must still be usable.
 func TestOrgsDegradesWhenMembershipUnreadable(t *testing.T) {
@@ -51,23 +72,74 @@ func TestOrgsFailsWithoutAuthenticatedUser(t *testing.T) {
 	}
 }
 
-func TestReposParsesAndSorts(t *testing.T) {
+// Repositories are ranked by activity, not name: the reviewer is looking for
+// what moved recently, and an alphabetical list buries it.
+func TestReposSortsByMostRecentPush(t *testing.T) {
 	f := xexec.NewFake().RespondOK("gh repo list", `[
-	  {"name":"zebra","nameWithOwner":"acme/zebra","isPrivate":false},
-	  {"name":"apple","nameWithOwner":"acme/apple","isPrivate":true}]`)
+	  {"name":"apple","nameWithOwner":"acme/apple","isPrivate":true,"pushedAt":"2023-01-05T00:00:00Z"},
+	  {"name":"zebra","nameWithOwner":"acme/zebra","isPrivate":false,"pushedAt":"2026-08-01T00:00:00Z"},
+	  {"name":"mango","nameWithOwner":"acme/mango","isPrivate":false,"pushedAt":"2026-02-14T00:00:00Z"}]`)
 
 	repos, err := New(f).Repos(context.Background(), "acme", 0)
 	if err != nil {
 		t.Fatalf("Repos: %v", err)
 	}
-	if len(repos) != 2 {
+	if len(repos) != 3 {
 		t.Fatalf("got %d repos", len(repos))
 	}
-	if repos[0].Name != "apple" {
-		t.Errorf("repos not sorted: %+v", repos)
+	got := []string{repos[0].Name, repos[1].Name, repos[2].Name}
+	want := []string{"zebra", "mango", "apple"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("repos = %v, want %v (most recently pushed first)", got, want)
+		}
 	}
-	if !repos[0].Private {
+	if repos[2].Name != "apple" || !repos[2].Private {
 		t.Error("private flag lost")
+	}
+	if repos[0].PushedAt != "2026-08-01T00:00:00Z" {
+		t.Errorf("pushedAt not surfaced: %+v", repos[0])
+	}
+}
+
+// A repository that has never been pushed to reports an empty timestamp; it
+// must sort last rather than jumping ahead of real activity.
+func TestReposSortsUnpushedLast(t *testing.T) {
+	f := xexec.NewFake().RespondOK("gh repo list", `[
+	  {"name":"empty","nameWithOwner":"acme/empty","pushedAt":""},
+	  {"name":"live","nameWithOwner":"acme/live","pushedAt":"2024-03-01T00:00:00Z"}]`)
+
+	repos, err := New(f).Repos(context.Background(), "acme", 0)
+	if err != nil {
+		t.Fatalf("Repos: %v", err)
+	}
+	if repos[0].Name != "live" || repos[1].Name != "empty" {
+		t.Fatalf("unpushed repo not last: %+v", repos)
+	}
+}
+
+// Equal timestamps must not produce a list that reshuffles between calls.
+func TestReposBreaksTiesByName(t *testing.T) {
+	f := xexec.NewFake().RespondOK("gh repo list", `[
+	  {"name":"beta","nameWithOwner":"acme/beta","pushedAt":"2025-01-01T00:00:00Z"},
+	  {"name":"alpha","nameWithOwner":"acme/alpha","pushedAt":"2025-01-01T00:00:00Z"}]`)
+
+	repos, err := New(f).Repos(context.Background(), "acme", 0)
+	if err != nil {
+		t.Fatalf("Repos: %v", err)
+	}
+	if repos[0].Name != "alpha" || repos[1].Name != "beta" {
+		t.Fatalf("ties not broken by name: %+v", repos)
+	}
+}
+
+func TestReposRequestsPushedAt(t *testing.T) {
+	f := xexec.NewFake().RespondOK("gh repo list", "[]")
+	if _, err := New(f).Repos(context.Background(), "acme", 0); err != nil {
+		t.Fatal(err)
+	}
+	if !f.Ran("pushedAt") {
+		t.Fatalf("pushedAt not requested from gh: %v", f.CommandLines())
 	}
 }
 

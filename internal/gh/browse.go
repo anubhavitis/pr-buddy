@@ -20,10 +20,10 @@ type Org struct {
 type Repo struct {
 	Name          string `json:"name"`
 	NameWithOwner string `json:"name_with_owner"`
-	// OpenPRs is GitHub's own count, used to hide repositories with nothing to
-	// review without paying for a second query per repository.
-	OpenPRs int  `json:"open_prs"`
-	Private bool `json:"private"`
+	// PushedAt is GitHub's last-push timestamp in RFC 3339, and the key repos
+	// are ranked by. Empty for a repository that has never been pushed to.
+	PushedAt string `json:"pushed_at"`
+	Private  bool   `json:"private"`
 }
 
 // PRSummary is the listing form of a pull request: enough to render a tree row
@@ -68,18 +68,29 @@ func (c *Client) Orgs(ctx context.Context) ([]Org, error) {
 			orgs = append(orgs, Org{Login: l})
 		}
 	}
+	// GitHub exposes no activity timestamp for an organization, and deriving
+	// one would cost a request per org — which is exactly the per-level expense
+	// this lazy tree exists to avoid. Alphabetical is the honest fallback. The
+	// viewer stays at index 0.
+	rest := orgs[1:]
+	sort.Slice(rest, func(i, j int) bool {
+		return strings.ToLower(rest[i].Login) < strings.ToLower(rest[j].Login)
+	})
 	return orgs, nil
 }
 
-// Repos lists an org's repositories that have at least one open pull request,
-// most recently pushed first.
+// Repos lists an org's non-archived repositories, most recently pushed first.
+//
+// Ordering is the whole point of this call: an org with hundreds of
+// repositories is unusable alphabetically, and the ones worth reviewing are
+// the ones that moved recently.
 func (c *Client) Repos(ctx context.Context, org string, limit int) ([]Repo, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	out, err := c.Runner.Run(ctx, "", "gh", "repo", "list", org,
 		"--limit", fmt.Sprint(limit), "--no-archived",
-		"--json", "name,nameWithOwner,isPrivate")
+		"--json", "name,nameWithOwner,isPrivate,pushedAt")
 	if err != nil {
 		return nil, fmt.Errorf("listing repositories for %s: %w", org, err)
 	}
@@ -87,15 +98,35 @@ func (c *Client) Repos(ctx context.Context, org string, limit int) ([]Repo, erro
 		Name          string `json:"name"`
 		NameWithOwner string `json:"nameWithOwner"`
 		IsPrivate     bool   `json:"isPrivate"`
+		PushedAt      string `json:"pushedAt"`
 	}
 	if err := json.Unmarshal([]byte(out), &raw); err != nil {
 		return nil, fmt.Errorf("parsing gh repo list output: %w", err)
 	}
 	repos := make([]Repo, 0, len(raw))
 	for _, r := range raw {
-		repos = append(repos, Repo{Name: r.Name, NameWithOwner: r.NameWithOwner, Private: r.IsPrivate})
+		repos = append(repos, Repo{
+			Name: r.Name, NameWithOwner: r.NameWithOwner,
+			PushedAt: r.PushedAt, Private: r.IsPrivate,
+		})
 	}
-	sort.Slice(repos, func(i, j int) bool { return repos[i].Name < repos[j].Name })
+	// RFC 3339 timestamps from GitHub are fixed-width UTC, so a string compare
+	// orders them correctly without parsing. An unpushed repo has no timestamp
+	// and sorts last; equal timestamps fall back to the name so the tree does
+	// not reshuffle between refreshes.
+	sort.Slice(repos, func(i, j int) bool {
+		a, b := repos[i], repos[j]
+		if a.PushedAt != b.PushedAt {
+			if a.PushedAt == "" {
+				return false
+			}
+			if b.PushedAt == "" {
+				return true
+			}
+			return a.PushedAt > b.PushedAt
+		}
+		return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+	})
 	return repos, nil
 }
 

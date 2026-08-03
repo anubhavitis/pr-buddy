@@ -1,5 +1,12 @@
 import * as vscode from "vscode";
-import { listOrgs, listPullRequests, listRepos, Org, PullRequest, Repo } from "./prBuddy";
+import {
+  listOrgs,
+  listPullRequests,
+  listRepos,
+  Org,
+  PullRequest,
+  Repo,
+} from "./prBuddy";
 
 /**
  * The org → repo → pull request tree.
@@ -79,7 +86,14 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<Node> {
       if (node.kind === "repo") {
         const prs = await this.pullRequestsFor(node.repo.name_with_owner);
         return prs.length
-          ? prs.map((pr) => ({ kind: "pr", repo: node.repo.name_with_owner, pr }) as PullRequestNode)
+          ? prs.map(
+              (pr) =>
+                ({
+                  kind: "pr",
+                  repo: node.repo.name_with_owner,
+                  pr,
+                }) as PullRequestNode,
+            )
           : [{ kind: "message", text: "No open pull requests" }];
       }
 
@@ -112,23 +126,61 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<Node> {
 }
 
 function orgItem(node: OrgNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.org.login, vscode.TreeItemCollapsibleState.Collapsed);
-  item.iconPath = new vscode.ThemeIcon(node.org.is_viewer ? "account" : "organization");
+  const item = new vscode.TreeItem(
+    node.org.login,
+    vscode.TreeItemCollapsibleState.Collapsed,
+  );
+  item.iconPath = new vscode.ThemeIcon(
+    node.org.is_viewer ? "account" : "organization",
+  );
   item.contextValue = "org";
   return item;
 }
 
 function repoItem(node: RepoNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.repo.name, vscode.TreeItemCollapsibleState.Collapsed);
+  const item = new vscode.TreeItem(
+    node.repo.name,
+    vscode.TreeItemCollapsibleState.Collapsed,
+  );
   item.iconPath = new vscode.ThemeIcon(node.repo.private ? "lock" : "repo");
-  item.tooltip = node.repo.name_with_owner;
+  // Repos arrive newest-first; showing the age makes that ordering legible
+  // instead of looking arbitrary.
+  item.description = relativeAge(node.repo.pushed_at);
+  item.tooltip = node.repo.pushed_at
+    ? `${node.repo.name_with_owner}\nlast push ${node.repo.pushed_at}`
+    : node.repo.name_with_owner;
   item.contextValue = "repo";
   return item;
 }
 
+/** Compact age like "3d" or "2mo" for a RFC 3339 timestamp; empty when unknown. */
+function relativeAge(timestamp: string): string {
+  if (!timestamp) {
+    return "";
+  }
+  const then = Date.parse(timestamp);
+  if (Number.isNaN(then)) {
+    return "";
+  }
+  const days = Math.floor((Date.now() - then) / 86_400_000);
+  if (days <= 0) {
+    return "today";
+  }
+  if (days < 30) {
+    return `${days}d`;
+  }
+  if (days < 365) {
+    return `${Math.floor(days / 30)}mo`;
+  }
+  return `${Math.floor(days / 365)}y`;
+}
+
 function prItem(node: PullRequestNode): vscode.TreeItem {
   const { pr } = node;
-  const item = new vscode.TreeItem(`#${pr.number} ${pr.title}`, vscode.TreeItemCollapsibleState.None);
+  const item = new vscode.TreeItem(
+    `#${pr.number} ${pr.title}`,
+    vscode.TreeItemCollapsibleState.None,
+  );
   item.description = `${pr.author} · ${pr.changed_files}f +${pr.additions}/-${pr.deletions}`;
   item.tooltip = new vscode.MarkdownString(
     [
@@ -153,7 +205,10 @@ function prItem(node: PullRequestNode): vscode.TreeItem {
 }
 
 function messageItem(node: MessageNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.text, vscode.TreeItemCollapsibleState.None);
+  const item = new vscode.TreeItem(
+    node.text,
+    vscode.TreeItemCollapsibleState.None,
+  );
   item.iconPath = new vscode.ThemeIcon("info");
   item.tooltip = node.tooltip;
   item.contextValue = "message";
