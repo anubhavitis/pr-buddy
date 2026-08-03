@@ -36,6 +36,19 @@ func main() {
 }
 
 func run() error {
+	// Subcommands emit JSON for programmatic callers such as the VS Code
+	// extension. Bare `pr-buddy <n>` remains the human-facing form.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "list":
+			return cmdList(os.Args[2:])
+		case "prepare":
+			return cmdPrepare(os.Args[2:])
+		case "review":
+			return cmdReviewJSON(os.Args[2:])
+		}
+	}
+
 	var (
 		repo    = flag.String("repo", "", "repository as owner/name (defaults to the current repository)")
 		model   = flag.String("model", defaultModel, "model to review with")

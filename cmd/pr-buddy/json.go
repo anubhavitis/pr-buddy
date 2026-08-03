@@ -1,0 +1,336 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
+
+	"github.com/anubhavitis/pr-buddy/internal/artifact"
+	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
+	"github.com/anubhavitis/pr-buddy/internal/gh"
+	"github.com/anubhavitis/pr-buddy/internal/render"
+	"github.com/anubhavitis/pr-buddy/internal/runner"
+	"github.com/anubhavitis/pr-buddy/internal/worktree"
+
+	"github.com/google/uuid"
+)
+
+// The subcommands below exist for programmatic callers such as the VS Code
+// extension. They emit one JSON object on stdout and nothing else, so a caller
+// never has to parse human-readable output.
+
+// emit writes v as JSON to stdout.
+func emit(v any) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+// cmdList answers one level of the org → repo → PR tree.
+//
+// Levels are separate calls so a caller can expand lazily; listing every PR in
+// every repository of every org up front would be far too slow to be useful.
+func cmdList(args []string) error {
+	fs := flag.NewFlagSet("list", flag.ExitOnError)
+	org := fs.String("org", "", "list repositories in this org")
+	repo := fs.String("repo", "", "list open pull requests in this repository (owner/name)")
+	limit := fs.Int("limit", 0, "maximum entries to return")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `usage: pr-buddy list [-org <login> | -repo <owner/name>]
+
+With no flags, lists the orgs visible to the authenticated user.
+Emits JSON on stdout.
+`)
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client := gh.New(xexec.Real{})
+
+	switch {
+	case *repo != "":
+		prs, err := client.PRs(ctx, *repo, *limit)
+		if err != nil {
+			return err
+		}
+		return emit(map[string]any{"repo": *repo, "pull_requests": prs})
+	case *org != "":
+		repos, err := client.Repos(ctx, *org, *limit)
+		if err != nil {
+			return err
+		}
+		return emit(map[string]any{"org": *org, "repos": repos})
+	default:
+		orgs, err := client.Orgs(ctx)
+		if err != nil {
+			return err
+		}
+		return emit(map[string]any{"orgs": orgs})
+	}
+}
+
+// prepareResult is what a caller needs to open a pull request for review.
+type prepareResult struct {
+	Repo        string   `json:"repo"`
+	PRNumber    int      `json:"pr_number"`
+	Title       string   `json:"title"`
+	State       string   `json:"state"`
+	BaseRef     string   `json:"base_ref"`
+	BaseSHA     string   `json:"base_sha"`
+	HeadSHA     string   `json:"head_sha"`
+	IsFork      bool     `json:"is_fork"`
+	Worktree    string   `json:"worktree"`
+	ArtifactDir string   `json:"artifact_dir"`
+	ReviewJSON  string   `json:"review_json"`
+	ReviewMD    string   `json:"review_md"`
+	Created     bool     `json:"created"`
+	Refreshed   bool     `json:"refreshed"`
+	ChangedFile []string `json:"changed_files"`
+	// ReviewStatus is the state of any stored review: absent, pending,
+	// running, complete, failed, or stale.
+	ReviewStatus string `json:"review_status"`
+	StaleReason  string `json:"stale_reason,omitempty"`
+}
+
+// cmdPrepare checks a pull request out and reports where everything lives,
+// without running a review.
+//
+// The extension calls this first so the worktree and diff are usable within
+// seconds, then starts a review separately in the background.
+func cmdPrepare(args []string) error {
+	fs := flag.NewFlagSet("prepare", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	model := fs.String("model", defaultModel, "model the review will use, for cache identity")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy prepare [-repo <owner/name>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	client := gh.New(r)
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	pr, err := client.ViewPR(ctx, cwd, slug, number)
+	if err != nil {
+		return err
+	}
+
+	src, err := sourceRepoDir(ctx, r, cwd, slug)
+	if err != nil {
+		return err
+	}
+
+	wt, err := worktree.New(r, *root).Ensure(ctx, src, pr)
+	if err != nil {
+		return err
+	}
+
+	prov := artifact.Provenance{
+		Repo: pr.Repo, PRNumber: pr.Number,
+		BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA,
+		RubricVersion: runner.RubricVersion, Model: *model,
+		SchemaVersion: artifact.Version,
+	}
+	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
+
+	res := prepareResult{
+		Repo: pr.Repo, PRNumber: pr.Number, Title: pr.Title,
+		State: string(pr.State), BaseRef: pr.BaseRef,
+		BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA, IsFork: pr.IsFork,
+		Worktree: wt.Path, ArtifactDir: artifactDir,
+		ReviewJSON: filepath.Join(artifactDir, "review.json"),
+		ReviewMD:   filepath.Join(artifactDir, "review.md"),
+		Created:    wt.Created, Refreshed: wt.Refreshed,
+		ReviewStatus: "absent",
+	}
+
+	// Changed files are best effort: the worktree is usable without them.
+	if files, err := client.ChangedFiles(ctx, pr.Repo, pr.Number); err == nil {
+		res.ChangedFile = files
+	}
+
+	if stored, err := artifact.ReadReview(artifactDir); err == nil {
+		switch {
+		case stored.Usable(prov):
+			res.ReviewStatus = string(artifact.StatusComplete)
+		case stored.Status == artifact.StatusComplete:
+			res.ReviewStatus = "stale"
+			res.StaleReason = stored.StaleReason(prov)
+		default:
+			res.ReviewStatus = string(stored.Status)
+		}
+	} else if !errors.Is(err, artifact.ErrNotFound) {
+		res.ReviewStatus = "unreadable"
+	}
+
+	return emit(res)
+}
+
+// reviewResult reports the outcome of a review run.
+type reviewResult struct {
+	Repo        string             `json:"repo"`
+	PRNumber    int                `json:"pr_number"`
+	Status      string             `json:"status"`
+	FromCache   bool               `json:"from_cache"`
+	StaleReason string             `json:"stale_reason,omitempty"`
+	Worktree    string             `json:"worktree"`
+	ReviewJSON  string             `json:"review_json"`
+	ReviewMD    string             `json:"review_md"`
+	SessionID   string             `json:"session_id,omitempty"`
+	Counts      map[string]int     `json:"counts"`
+	Findings    []artifact.Finding `json:"findings"`
+}
+
+// cmdReviewJSON runs a review and reports the result as JSON.
+func cmdReviewJSON(args []string) error {
+	fs := flag.NewFlagSet("review", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	model := fs.String("model", defaultModel, "model to review with")
+	force := fs.Bool("force", false, "re-review even when a valid cached review exists")
+	timeout := fs.Duration("timeout", 15*time.Minute, "maximum time for one review")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy review [-repo <owner/name>] [-force] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout+time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	client := gh.New(r)
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
+			return err
+		}
+	}
+	pr, err := client.ViewPR(ctx, cwd, slug, number)
+	if err != nil {
+		return err
+	}
+	src, err := sourceRepoDir(ctx, r, cwd, slug)
+	if err != nil {
+		return err
+	}
+	wt, err := worktree.New(r, *root).Ensure(ctx, src, pr)
+	if err != nil {
+		return err
+	}
+
+	prov := artifact.Provenance{
+		Repo: pr.Repo, PRNumber: pr.Number,
+		BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA,
+		RubricVersion: runner.RubricVersion, Model: *model,
+		SchemaVersion: artifact.Version,
+	}
+	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
+	if *force {
+		_ = os.Remove(filepath.Join(artifactDir, "review.json"))
+	}
+
+	run := &runner.Runner{
+		Reviewer:     &runner.Claude{Runner: r, Model: *model},
+		NewSessionID: func() string { return uuid.NewString() },
+		Timeout:      *timeout,
+	}
+	out, err := run.Run(ctx, artifactDir, wt.Path, prov)
+	if err != nil {
+		return err
+	}
+
+	mdPath := filepath.Join(artifactDir, "review.md")
+	if err := os.WriteFile(mdPath, []byte(render.Markdown(out.Review, pr.Title)), 0o644); err != nil {
+		return err
+	}
+
+	counts := map[string]int{"error": 0, "warning": 0, "info": 0}
+	for _, f := range out.Review.Findings {
+		counts[string(f.Severity)]++
+	}
+
+	res := reviewResult{
+		Repo: pr.Repo, PRNumber: pr.Number,
+		Status: string(out.Review.Status), FromCache: out.FromCache,
+		StaleReason: out.StaleReason, Worktree: wt.Path,
+		ReviewJSON: filepath.Join(artifactDir, "review.json"),
+		ReviewMD:   mdPath,
+		Counts:     counts, Findings: out.Review.Findings,
+	}
+	if sess, err := artifact.ReadSession(artifactDir); err == nil {
+		res.SessionID = sess.SessionID
+	}
+	return emit(res)
+}
+
+// sourceRepoDir returns a local clone of slug to create worktrees from.
+//
+// The current directory is used when it is already that repository. Otherwise
+// a bare mirror is kept under the review root, so the extension can open a pull
+// request in a repository the user has never cloned.
+func sourceRepoDir(ctx context.Context, r xexec.Runner, cwd, slug string) (string, error) {
+	if current, err := gh.New(r).CurrentRepo(ctx, cwd); err == nil && current == slug {
+		return cwd, nil
+	}
+	root := defaultRoot()
+	dir := filepath.Join(root, ".repos", worktree.DirName(slug, 0)+".git")
+	if _, err := os.Stat(dir); err == nil {
+		// Refresh so a newly opened pull request is reachable.
+		_, _ = r.Run(ctx, dir, "git", "fetch", "--no-tags", "origin")
+		return dir, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return "", err
+	}
+	url := fmt.Sprintf("https://github.com/%s.git", slug)
+	if _, err := r.Run(ctx, "", "git", "clone", "--bare", "--filter=blob:none", url, dir); err != nil {
+		return "", fmt.Errorf("cloning %s: %w", slug, err)
+	}
+	return dir, nil
+}
+
+func reviewDir(root, repo string, number int) string {
+	return filepath.Join(root, ".reviews", worktree.DirName(repo, number))
+}
+
+func prNumber(arg string) (int, error) {
+	n, err := strconv.Atoi(arg)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid pull request number %q", arg)
+	}
+	return n, nil
+}
