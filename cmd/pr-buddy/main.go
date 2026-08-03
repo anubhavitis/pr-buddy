@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -147,8 +148,8 @@ func run() error {
 	}
 
 	if *open {
-		if _, err := r.Run(ctx, "", "code", wt.Path, reviewPath); err != nil {
-			fmt.Fprintf(os.Stderr, "  (could not open VS Code: %v)\n", err)
+		if _, err := r.Run(ctx, "", editorBin(), wt.Path, reviewPath); err != nil {
+			fmt.Fprintf(os.Stderr, "  (could not open the editor: %v)\n", err)
 		}
 	}
 	return nil
@@ -177,6 +178,25 @@ func summarize(r *artifact.Review) {
 		}
 		fmt.Printf("    %-7s %s  %s\n", f.Severity, loc, f.Message)
 	}
+}
+
+// editorBin locates the editor launcher.
+//
+// `code` is commonly a shell alias rather than a binary on PATH, and pr-buddy
+// never invokes a shell, so an alias is invisible to it. Fall back to the known
+// macOS install location before giving up.
+func editorBin() string {
+	if v := os.Getenv("PR_BUDDY_EDITOR"); v != "" {
+		return v
+	}
+	if path, err := exec.LookPath("code"); err == nil {
+		return path
+	}
+	const macOS = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"
+	if _, err := os.Stat(macOS); err == nil {
+		return macOS
+	}
+	return "code"
 }
 
 func defaultRoot() string {

@@ -14,6 +14,9 @@ Prove that a personal, AI-assisted PR review workflow reduces reviewer time with
 - No VS Code extension is built during the pilot.
 - No secrets or dependency directories are copied into review worktrees.
 - No package installation or repository scripts run automatically.
+- The reviewer writes all PR comments in the GitHub web UI and does not use the
+  VS Code GitHub Pull Requests extension. Corrected on 2026-08-03; the original
+  plan assumed inline commenting in the editor. See Phase 3.
 
 If any assumption is wrong, resolve it before implementation because it changes the safety model or scope.
 
@@ -95,29 +98,43 @@ Stop condition:
 
 ## Phase 3 — Validate the VS Code and GitHub seam
 
-Target: 30–60 minutes.
+Target: 30–60 minutes. **Mostly resolved on 2026-08-03; see below.**
 
-1. Create a disposable worktree for a harmless real PR.
-2. Open that worktree in VS Code.
-3. Confirm whether the GitHub Pull Requests extension identifies the PR.
-4. Confirm that changed-file navigation works.
-5. Confirm that an inline comment can be drafted from the worktree.
-6. Confirm that approval and merge controls are available; do not submit either during the test.
-7. Confirm behavior when the worktree is detached.
-8. Confirm behavior for a PR from a fork if fork-based PRs are relevant.
-9. Verify that VS Code does not automatically execute branch-controlled tasks.
-10. Record the exact checkout shape that works reliably.
+Revised assumption: the reviewer does not use the VS Code GitHub Pull Requests
+extension and writes all comments in the GitHub web UI. The original assumption
+that inline commenting would happen in the editor was wrong.
+
+Consequences:
+
+- The checkout decision below is settled: the wrapper owns checkout, because no
+  extension is competing for it. This was the expensive open question.
+- Steps covering extension recognition, inline comment drafting, and approval
+  and merge controls do not apply and are struck.
+- Leaving the editor to comment is now a known, accepted cost rather than an
+  unknown. Phase 7's ten-second criterion was written assuming inline
+  commenting and is optimistic; keep the criterion and measure the real number
+  during the pilot rather than redefining it now.
+- Phase 8 already instruments this through its manual-ceremony stop condition.
+  If browser switching turns out to dominate review time, that is Phase 9
+  evidence for revisiting editor integration, not a reason to build it early.
+
+Remaining checks:
+
+1. ~~Create a disposable worktree for a harmless real PR.~~ Done: `siphl#4`.
+2. Open that worktree in VS Code and confirm changed-file navigation works.
+3. Verify that VS Code does not automatically execute branch-controlled tasks
+   on open.
+4. Confirm behavior for a PR from a fork if fork-based PRs are relevant.
 
 Exit criteria:
 
-- One supported worktree/checkout approach is proven.
-- Inline commenting is possible without leaving VS Code.
+- ~~One supported worktree/checkout approach is proven.~~ Proven: detached
+  external worktree, head verified against GitHub.
 - Opening the worktree does not automatically execute PR code.
 
 Decision:
 
-- If external worktrees are recognized, keep checkout in the wrapper.
-- If they are not recognized, let the GitHub extension own checkout and make the wrapper operate on its resulting worktree.
+- Resolved: checkout stays in the wrapper.
 
 ## Phase 4 — Define the review artifact
 
