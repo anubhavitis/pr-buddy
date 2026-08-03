@@ -1,0 +1,160 @@
+{
+  "name": "pr-buddy",
+  "displayName": "pr-buddy",
+  "description": "Browse pull requests, open each in its own worktree, and review with an AI-generated reading order.",
+  "version": "0.1.0",
+  "publisher": "anubhavitis",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anubhavitis/pr-buddy"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:prBuddy.pullRequests",
+    "onView:prBuddy.review"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pr-buddy",
+          "title": "pr-buddy",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "pr-buddy": [
+        {
+          "id": "prBuddy.pullRequests",
+          "name": "Pull Requests"
+        },
+        {
+          "id": "prBuddy.review",
+          "name": "Review",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "prBuddy.refresh",
+        "title": "pr-buddy: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prBuddy.openPullRequest",
+        "title": "pr-buddy: Open Pull Request"
+      },
+      {
+        "command": "prBuddy.runReview",
+        "title": "pr-buddy: Review This Pull Request",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prBuddy.rerunReview",
+        "title": "pr-buddy: Re-review (ignore cache)",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "prBuddy.openTerminal",
+        "title": "pr-buddy: Open Terminal In Worktree",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "prBuddy.resumeChat",
+        "title": "pr-buddy: Resume Review Chat"
+      },
+      {
+        "command": "prBuddy.openOnGitHub",
+        "title": "pr-buddy: Open on GitHub",
+        "icon": "$(github)"
+      },
+      {
+        "command": "prBuddy.openReviewMarkdown",
+        "title": "pr-buddy: Open Review Document"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "prBuddy.refresh",
+          "when": "view == prBuddy.pullRequests",
+          "group": "navigation"
+        },
+        {
+          "command": "prBuddy.runReview",
+          "when": "view == prBuddy.review",
+          "group": "navigation@1"
+        },
+        {
+          "command": "prBuddy.openTerminal",
+          "when": "view == prBuddy.review",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "prBuddy.openOnGitHub",
+          "when": "view == prBuddy.pullRequests && viewItem == pullRequest",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.rerunReview",
+          "when": "view == prBuddy.review && viewItem == reviewSummary",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "pr-buddy",
+      "properties": {
+        "prBuddy.binaryPath": {
+          "type": "string",
+          "default": "pr-buddy",
+          "description": "Path to the pr-buddy binary."
+        },
+        "prBuddy.model": {
+          "type": "string",
+          "default": "claude-opus-5",
+          "description": "Model used for reviews. Changing this invalidates cached reviews."
+        },
+        "prBuddy.autoReviewOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start a review in the background when a pull request is opened."
+        },
+        "prBuddy.repoLimit": {
+          "type": "number",
+          "default": 100,
+          "description": "Maximum repositories listed per organization."
+        },
+        "prBuddy.prLimit": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum open pull requests listed per repository."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.4.0"
+  }
+}
