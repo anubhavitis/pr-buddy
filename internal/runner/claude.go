@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
@@ -42,14 +43,41 @@ type Claude struct {
 }
 
 // claudeJSON mirrors the subset of `claude --output-format json` we consume.
+//
+// There is no top-level `model` field. The CLI reports what served the request
+// under `modelUsage`, keyed by model name, with the unsuffixed name under
+// `canonicalModel` -- verified against real output.
 type claudeJSON struct {
 	Type      string `json:"type"`
 	Subtype   string `json:"subtype"`
 	IsError   bool   `json:"is_error"`
 	Result    string `json:"result"`
 	SessionID string `json:"session_id"`
-	Model     string `json:"model"`
 	Error     string `json:"error"`
+
+	ModelUsage map[string]struct {
+		CanonicalModel string `json:"canonicalModel"`
+	} `json:"modelUsage"`
+}
+
+// model reports which model served the request, preferring the canonical name
+// over the keyed name so that "claude-opus-5[1m]" is recorded as
+// "claude-opus-5". Empty when the CLI reported no usage.
+func (p claudeJSON) model() string {
+	// Sorted so that a multi-model response yields a stable answer rather than
+	// whichever key the map happened to yield first.
+	names := make([]string, 0, len(p.ModelUsage))
+	for name := range p.ModelUsage {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if c := p.ModelUsage[name].CanonicalModel; c != "" {
+			return c
+		}
+		return name
+	}
+	return ""
 }
 
 // Review runs the review prompt against dir and returns the model's output.
@@ -57,7 +85,7 @@ type claudeJSON struct {
 // dir is a worktree containing untrusted pull request code. Every flag below
 // exists to ensure that code is read and never executed, and that nothing
 // inside it can widen these permissions.
-func (c *Claude) Review(ctx context.Context, dir, sessionID, prompt string) (*ClaudeResult, error) {
+func (c *Claude) Review(ctx context.Context, dir, prompt string) (*ClaudeResult, error) {
 	bin := c.Bin
 	if bin == "" {
 		bin = "claude"
@@ -78,9 +106,10 @@ func (c *Claude) Review(ctx context.Context, dir, sessionID, prompt string) (*Cl
 		// must never be answered by a permission bypass.
 		"--permission-mode", "dontAsk",
 	}
-	if sessionID != "" {
-		args = append(args, "--session-id", sessionID)
-	}
+	// Deliberately no --session-id: asserting a caller-chosen id makes that id
+	// single-use (the CLI rejects a second invocation under the same one), which
+	// is precisely what leaves a review unresumable. The id the CLI returns is
+	// the one `claude --resume` accepts, so that is what gets recorded.
 	if c.Model != "" {
 		args = append(args, "--model", c.Model)
 	}
@@ -109,11 +138,30 @@ func (c *Claude) Review(ctx context.Context, dir, sessionID, prompt string) (*Cl
 		return nil, errors.New("claude returned no session id; review would not be resumable")
 	}
 
-	model := payload.Model
+	model := payload.model()
 	if model == "" {
 		model = c.Model
 	}
 	return &ClaudeResult{Raw: payload.Result, SessionID: payload.SessionID, Model: model}, nil
+}
+
+// ResumeCommand is the command a human runs to continue a review conversation.
+//
+// Verified against the real CLI: `--resume` reattaches to a session created by
+// `--print` and replays its history, so the returned id stays usable after the
+// review process exits.
+//
+// The follow-up session is deliberately *not* restricted to the review's
+// read-only tool set: this is an interactive chat a human drives, and the user
+// chose full capability for it. That is a widening of the review's safety model
+// -- the worktree still holds untrusted pull request code -- so it is a choice
+// recorded here rather than an accident. It must never become a permission
+// bypass; no --dangerously-skip-permissions is ever emitted.
+func ResumeCommand(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	return "claude --resume " + sessionID
 }
 
 // MalformedError reports output that could not be parsed. The raw text is kept

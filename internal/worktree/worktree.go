@@ -51,24 +51,44 @@ type Worktree struct {
 
 // DirName returns the directory name for a pull request's worktree.
 //
-// The name includes a digest of the full repository slug, so PR 42 in
-// acme/widgets and PR 42 in other/widgets can never collide.
+// The whole repository slug is kept, owner included, so PR 42 in acme/widgets
+// and PR 42 in other/widgets cannot collide -- the owner is the only thing that
+// separates two repositories sharing a name.
+//
+// The `-pr-<n>` suffix is for the human: this directory shows up in the shell
+// prompt and in editor titles, and it should be obvious at a glance that it is
+// a review checkout rather than working code.
 func DirName(repo string, number int) string {
-	h := sha256.Sum256([]byte(repo))
-	return fmt.Sprintf("%s-%d-%s", slug(repo), number, hex.EncodeToString(h[:])[:8])
+	s := slug(repo)
+	// Truncation is the one case where the slug stops being unique: two repos
+	// differing only past the cutoff would otherwise share a worktree. Restore
+	// uniqueness with a digest of the full slug, but only when it is actually
+	// needed, so ordinary names stay readable.
+	if s != fullSlug(repo) {
+		h := sha256.Sum256([]byte(repo))
+		s += "-" + hex.EncodeToString(h[:])[:8]
+	}
+	return fmt.Sprintf("%s-pr-%d", s, number)
 }
 
 var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
-// slug reduces a repository slug to a filesystem-safe fragment.
+// slug reduces a repository slug to a filesystem-safe fragment, bounded so a
+// directory name stays workable.
 func slug(repo string) string {
+	s := fullSlug(repo)
+	if len(s) > 60 {
+		s = strings.Trim(s[:60], "-.")
+	}
+	return s
+}
+
+// fullSlug is slug without the length bound, used to detect truncation.
+func fullSlug(repo string) string {
 	s := unsafeChars.ReplaceAllString(repo, "-")
 	s = strings.Trim(s, "-.")
 	if s == "" {
 		s = "repo"
-	}
-	if len(s) > 60 {
-		s = s[:60]
 	}
 	return strings.ToLower(s)
 }

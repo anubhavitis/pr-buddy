@@ -22,8 +22,6 @@ import (
 	"github.com/anubhavitis/pr-buddy/internal/render"
 	"github.com/anubhavitis/pr-buddy/internal/runner"
 	"github.com/anubhavitis/pr-buddy/internal/worktree"
-
-	"github.com/google/uuid"
 )
 
 const defaultModel = "claude-opus-5"
@@ -124,15 +122,14 @@ func run() error {
 		SchemaVersion: artifact.Version,
 	}
 
-	artifactDir := filepath.Join(*root, ".reviews", worktree.DirName(pr.Repo, pr.Number))
+	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
 	if *force {
-		_ = os.Remove(filepath.Join(artifactDir, "review.json"))
+		discardCachedReview(artifactDir)
 	}
 
 	run := &runner.Runner{
-		Reviewer:     &runner.Claude{Runner: r, Model: *model},
-		NewSessionID: func() string { return uuid.NewString() },
-		Timeout:      *timeout,
+		Reviewer: &runner.Claude{Runner: r, Model: *model},
+		Timeout:  *timeout,
 	}
 
 	res, err := run.Run(ctx, artifactDir, wt.Path, prov)
@@ -156,8 +153,8 @@ func run() error {
 
 	summarize(res.Review)
 	fmt.Printf("\n  worktree: %s\n  review:   %s\n", wt.Path, reviewPath)
-	if sess, err := artifact.ReadSession(artifactDir); err == nil {
-		fmt.Printf("  resume:   claude --resume %s\n", sess.SessionID)
+	if sess, err := artifact.ReadSession(artifactDir); err == nil && sess.ResumeCommand != "" {
+		fmt.Printf("  resume:   %s\n", sess.ResumeCommand)
 	}
 
 	if *open {

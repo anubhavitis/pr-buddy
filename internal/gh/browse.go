@@ -46,22 +46,27 @@ type PRSummary struct {
 //
 // The tree is browsed lazily one level at a time: this call is cheap, and
 // repositories are only fetched when an org is expanded.
-func (c *Client) Orgs(ctx context.Context) ([]Org, error) {
+// The second return value is a warning: a non-empty string means the org list
+// is incomplete for a stated reason. It is not an error, because the viewer's
+// own account alone is still useful -- but a silent degrade made a token-scope
+// problem indistinguishable from genuinely belonging to no organizations.
+func (c *Client) Orgs(ctx context.Context) ([]Org, string, error) {
 	viewer, err := c.Runner.Run(ctx, "", "gh", "api", "user", "--jq", ".login")
 	if err != nil {
-		return nil, fmt.Errorf("reading the authenticated user: %w", err)
+		return nil, "", fmt.Errorf("reading the authenticated user: %w", err)
 	}
 	login := strings.TrimSpace(viewer)
 	if login == "" {
-		return nil, fmt.Errorf("gh did not report an authenticated user; run `gh auth login`")
+		return nil, "", fmt.Errorf("gh did not report an authenticated user; run `gh auth login`")
 	}
 	orgs := []Org{{Login: login, IsViewer: true}}
 
 	out, err := c.Runner.Run(ctx, "", "gh", "api", "user/orgs", "--paginate", "--jq", ".[].login")
 	if err != nil {
 		// Membership is not readable under every token scope. The viewer's own
-		// account is still usable, so degrade rather than fail.
-		return orgs, nil
+		// account is still usable, so degrade rather than fail -- but say so.
+		return orgs, fmt.Sprintf("could not read organization membership (%v); showing %s only. "+
+			"If organizations are missing, the token may lack the read:org scope.", err, login), nil
 	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if l := strings.TrimSpace(line); l != "" {
@@ -76,7 +81,7 @@ func (c *Client) Orgs(ctx context.Context) ([]Org, error) {
 	sort.Slice(rest, func(i, j int) bool {
 		return strings.ToLower(rest[i].Login) < strings.ToLower(rest[j].Login)
 	})
-	return orgs, nil
+	return orgs, "", nil
 }
 
 // Repos lists an org's non-archived repositories, most recently pushed first.

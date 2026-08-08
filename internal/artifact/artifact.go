@@ -148,9 +148,13 @@ type Failure struct {
 // review content so that regenerating a review never disturbs chat continuity,
 // and so session ids never leak into rendered human-readable output.
 type Session struct {
-	SchemaVersion int       `json:"schema_version"`
-	SessionID     string    `json:"session_id"`
-	Model         string    `json:"model"`
+	SchemaVersion int    `json:"schema_version"`
+	SessionID     string `json:"session_id"`
+	Model         string `json:"model"`
+	// ResumeCommand reattaches a human to this conversation. It is composed
+	// once, here, so that every caller -- the CLI and the editor alike -- offers
+	// the same recipe rather than each inventing its own.
+	ResumeCommand string    `json:"resume_command,omitempty"`
 	CacheKey      string    `json:"cache_key"`
 	CreatedAt     time.Time `json:"created_at"`
 }

@@ -11,7 +11,8 @@ import { Finding, Prepared, ReadingGroup, StoredReview } from "./prBuddy";
  * changed-file order while a review is still running.
  */
 
-export type ReviewNode = SummaryNode | GroupNode | FileNode | FindingNode | MessageNode;
+export type ReviewNode =
+  SummaryNode | GroupNode | FileNode | FindingNode | MessageNode;
 
 interface SummaryNode {
   kind: "summary";
@@ -49,6 +50,14 @@ export interface ReviewState {
   /** Set while a review is in flight, so the panel can say so. */
   running: boolean;
   sessionId?: string;
+  /** How to reattach to the review conversation, as composed by the binary. */
+  resumeCommand?: string;
+  /**
+   * Why the stored review was not adopted. Set when a cached review exists but
+   * describes a different head, so the panel can explain the absence rather
+   * than silently showing "not reviewed".
+   */
+  staleReason?: string;
 }
 
 export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
@@ -66,16 +75,28 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
     this.changed.fire(undefined);
   }
 
-  /** Re-reads the stored artifact, picking up a review that has just finished. */
+  /**
+   * Re-reads the stored artifact, picking up a review that finished out of band
+   * — a terminal-initiated run, or one whose progress notification was
+   * cancelled after the work had already completed.
+   *
+   * The head-SHA check is load-bearing: without it this becomes a second route
+   * to adopting a review of different code, which is the bug the caller-side
+   * status check exists to prevent.
+   */
   reload(): void {
     if (!this.state) {
       return;
     }
     const stored = readStoredReview(this.state.prepared.review_json);
-    if (stored) {
+    if (
+      stored?.status === "complete" &&
+      stored.provenance?.head_sha === this.state.prepared.head_sha
+    ) {
       this.state.review = stored;
+      this.state.staleReason = undefined;
+      this.changed.fire(undefined);
     }
-    this.changed.fire(undefined);
   }
 
   getTreeItem(node: ReviewNode): vscode.TreeItem {
@@ -96,7 +117,13 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
   getChildren(node?: ReviewNode): ReviewNode[] {
     const state = this.state;
     if (!state) {
-      return [{ kind: "message", text: "Select a pull request to begin", icon: "git-pull-request" }];
+      return [
+        {
+          kind: "message",
+          text: "Select a pull request to begin",
+          icon: "git-pull-request",
+        },
+      ];
     }
 
     if (!node) {
@@ -116,7 +143,7 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
   }
 
   private roots(state: ReviewState): ReviewNode[] {
-    const { prepared, review, running } = state;
+    const { prepared, review, running, staleReason } = state;
     const nodes: ReviewNode[] = [];
 
     const counts = countBySeverity(review?.findings ?? []);
@@ -127,8 +154,20 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
         ? "reviewing…"
         : review
           ? `${counts.error} error · ${counts.warning} warning · ${counts.info} info`
-          : "not reviewed",
+          : staleReason
+            ? "out of date"
+            : "not reviewed",
     });
+
+    // A superseded review is deliberately not shown, so say why rather than
+    // leaving the panel looking simply unreviewed.
+    if (staleReason && !running && !review) {
+      nodes.push({
+        kind: "message",
+        text: `Cached review is out of date: ${staleReason}. Re-review to refresh.`,
+        icon: "warning",
+      });
+    }
 
     if (review?.summary) {
       nodes.push({ kind: "message", text: review.summary, icon: "note" });
@@ -136,7 +175,9 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
 
     const guide = review?.reading_guide ?? [];
     if (guide.length) {
-      guide.forEach((group, index) => nodes.push({ kind: "group", group, index }));
+      guide.forEach((group, index) =>
+        nodes.push({ kind: "group", group, index }),
+      );
       return nodes;
     }
 
@@ -144,16 +185,26 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
     // usable while the review runs.
     const files = prepared.changed_files ?? [];
     if (running) {
-      nodes.push({ kind: "message", text: "Reading order appears when the review finishes", icon: "loading~spin" });
+      nodes.push({
+        kind: "message",
+        text: "Reading order appears when the review finishes",
+        icon: "loading~spin",
+      });
     }
     for (const relPath of files) {
-      nodes.push({ kind: "file", relPath, findings: findingsFor(review, relPath) });
+      nodes.push({
+        kind: "file",
+        relPath,
+        findings: findingsFor(review, relPath),
+      });
     }
     return nodes;
   }
 }
 
-export function readStoredReview(reviewJsonPath: string): StoredReview | undefined {
+export function readStoredReview(
+  reviewJsonPath: string,
+): StoredReview | undefined {
   try {
     return JSON.parse(fs.readFileSync(reviewJsonPath, "utf8")) as StoredReview;
   } catch {
@@ -161,7 +212,10 @@ export function readStoredReview(reviewJsonPath: string): StoredReview | undefin
   }
 }
 
-function findingsFor(review: StoredReview | undefined, relPath: string): Finding[] {
+function findingsFor(
+  review: StoredReview | undefined,
+  relPath: string,
+): Finding[] {
   return (review?.findings ?? []).filter((f) => f.location.path === relPath);
 }
 
@@ -174,7 +228,10 @@ function countBySeverity(findings: Finding[]): Record<string, number> {
 }
 
 function summaryItem(node: SummaryNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+  const item = new vscode.TreeItem(
+    node.label,
+    vscode.TreeItemCollapsibleState.None,
+  );
   item.description = node.detail;
   item.iconPath = new vscode.ThemeIcon("git-pull-request");
   item.contextValue = "reviewSummary";
@@ -197,11 +254,15 @@ function fileItem(node: FileNode, state?: ReviewState): vscode.TreeItem {
   const worst = worstSeverity(node.findings);
   const item = new vscode.TreeItem(
     path.basename(node.relPath),
-    node.findings.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None,
+    node.findings.length
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.None,
   );
   item.description = path.dirname(node.relPath);
   item.tooltip = node.relPath;
-  item.resourceUri = state ? vscode.Uri.file(path.join(state.prepared.worktree, node.relPath)) : undefined;
+  item.resourceUri = state
+    ? vscode.Uri.file(path.join(state.prepared.worktree, node.relPath))
+    : undefined;
   item.iconPath = worst ? severityIcon(worst) : vscode.ThemeIcon.File;
   item.contextValue = "reviewFile";
   if (state) {
@@ -216,8 +277,13 @@ function fileItem(node: FileNode, state?: ReviewState): vscode.TreeItem {
 
 function findingItem(node: FindingNode, state?: ReviewState): vscode.TreeItem {
   const { finding } = node;
-  const item = new vscode.TreeItem(finding.message, vscode.TreeItemCollapsibleState.None);
-  item.description = finding.location.line ? `:${finding.location.line}` : finding.rule;
+  const item = new vscode.TreeItem(
+    finding.message,
+    vscode.TreeItemCollapsibleState.None,
+  );
+  item.description = finding.location.line
+    ? `:${finding.location.line}`
+    : finding.rule;
   item.iconPath = severityIcon(finding.severity);
   item.tooltip = new vscode.MarkdownString(
     [
@@ -239,7 +305,10 @@ function findingItem(node: FindingNode, state?: ReviewState): vscode.TreeItem {
 }
 
 function messageItem(node: MessageNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(node.text, vscode.TreeItemCollapsibleState.None);
+  const item = new vscode.TreeItem(
+    node.text,
+    vscode.TreeItemCollapsibleState.None,
+  );
   item.iconPath = new vscode.ThemeIcon(node.icon ?? "info");
   item.tooltip = node.text;
   return item;
@@ -258,10 +327,19 @@ function worstSeverity(findings: Finding[]): Finding["severity"] | undefined {
 function severityIcon(severity: Finding["severity"]): vscode.ThemeIcon {
   switch (severity) {
     case "error":
-      return new vscode.ThemeIcon("error", new vscode.ThemeColor("problemsErrorIcon.foreground"));
+      return new vscode.ThemeIcon(
+        "error",
+        new vscode.ThemeColor("problemsErrorIcon.foreground"),
+      );
     case "warning":
-      return new vscode.ThemeIcon("warning", new vscode.ThemeColor("problemsWarningIcon.foreground"));
+      return new vscode.ThemeIcon(
+        "warning",
+        new vscode.ThemeColor("problemsWarningIcon.foreground"),
+      );
     default:
-      return new vscode.ThemeIcon("info", new vscode.ThemeColor("problemsInfoIcon.foreground"));
+      return new vscode.ThemeIcon(
+        "info",
+        new vscode.ThemeColor("problemsInfoIcon.foreground"),
+      );
   }
 }

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ type stubReviewer struct {
 	delay   time.Duration
 }
 
-func (s *stubReviewer) Review(ctx context.Context, dir, sessionID, prompt string) (*ClaudeResult, error) {
+func (s *stubReviewer) Review(ctx context.Context, dir, prompt string) (*ClaudeResult, error) {
 	s.calls++
 	s.lastDir = dir
 	if s.delay > 0 {
@@ -46,8 +47,10 @@ func (s *stubReviewer) Review(ctx context.Context, dir, sessionID, prompt string
 		return nil, s.err
 	}
 	res := s.res
+	// The real CLI issues the session id itself; a stub that echoed back the
+	// caller's would hide the fact that pr-buddy no longer supplies one.
 	if res != nil && res.SessionID == "" {
-		res.SessionID = sessionID
+		res.SessionID = fmt.Sprintf("cli-session-%d", s.calls)
 	}
 	return res, nil
 }
@@ -65,20 +68,15 @@ func testProv() artifact.Provenance {
 }
 
 func newRunner(rev Reviewer) *Runner {
-	n := 0
 	return &Runner{
 		Reviewer: rev,
 		Now:      func() time.Time { return time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC) },
-		NewSessionID: func() string {
-			n++
-			return "session-" + string(rune('a'+n-1))
-		},
 	}
 }
 
 func TestRunProducesCompleteArtifactAndSession(t *testing.T) {
 	dir := t.TempDir()
-	rev := &stubReviewer{res: &ClaudeResult{Raw: goodOutput, Model: "claude-opus-5"}}
+	rev := &stubReviewer{res: &ClaudeResult{Raw: goodOutput, SessionID: "session-a", Model: "claude-opus-5"}}
 	res, err := newRunner(rev).Run(context.Background(), dir, "/wt", testProv())
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -294,13 +292,18 @@ func TestRunningArtifactIsNeverUsable(t *testing.T) {
 	}
 }
 
+// A review with no session id is unresumable, so it must not be recorded as a
+// finished one. This stub returns nothing rather than standing in for the CLI,
+// which always issues an id.
+type idlessReviewer struct{}
+
+func (idlessReviewer) Review(ctx context.Context, dir, prompt string) (*ClaudeResult, error) {
+	return &ClaudeResult{Raw: goodOutput, SessionID: ""}, nil
+}
+
 func TestRunRejectsMissingSessionID(t *testing.T) {
 	dir := t.TempDir()
-	// A reviewer that returns no session id makes the review unresumable.
-	rev := &stubReviewer{res: &ClaudeResult{Raw: goodOutput, SessionID: ""}}
-	r := newRunner(rev)
-	r.NewSessionID = func() string { return "" }
-	if _, err := r.Run(context.Background(), dir, "/wt", testProv()); err == nil {
+	if _, err := newRunner(idlessReviewer{}).Run(context.Background(), dir, "/wt", testProv()); err == nil {
 		t.Fatal("expected error when no session id is available")
 	}
 }
@@ -393,7 +396,7 @@ func TestPromptIsVersionedAndDescribesTheContract(t *testing.T) {
 func TestClaudeInvocationIsReadOnly(t *testing.T) {
 	f := xexec.NewFake().RespondOK("claude", `{"result":"{}","session_id":"s-1","model":"claude-opus-5"}`)
 	c := &Claude{Runner: f, Model: "claude-opus-5"}
-	if _, err := c.Review(context.Background(), "/wt", "s-1", "review please"); err != nil {
+	if _, err := c.Review(context.Background(), "/wt", "review please"); err != nil {
 		t.Fatalf("Review: %v", err)
 	}
 	line := f.CommandLines()[0]
@@ -403,7 +406,6 @@ func TestClaudeInvocationIsReadOnly(t *testing.T) {
 		"--setting-sources user",
 		"--strict-mcp-config",
 		"--permission-mode dontAsk",
-		"--session-id s-1",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("invocation missing %q\ngot: %s", want, line)
@@ -424,7 +426,7 @@ func TestClaudeInvocationIsReadOnly(t *testing.T) {
 func TestClaudeRunsInsideWorktree(t *testing.T) {
 	f := xexec.NewFake().RespondOK("claude", `{"result":"{}","session_id":"s-1"}`)
 	c := &Claude{Runner: f}
-	if _, err := c.Review(context.Background(), "/worktrees/acme-42", "s-1", "p"); err != nil {
+	if _, err := c.Review(context.Background(), "/worktrees/acme-42", "p"); err != nil {
 		t.Fatal(err)
 	}
 	if f.Calls[0].Dir != "/worktrees/acme-42" {
@@ -435,7 +437,7 @@ func TestClaudeRunsInsideWorktree(t *testing.T) {
 func TestClaudeReportsMalformedOutput(t *testing.T) {
 	f := xexec.NewFake().RespondOK("claude", "not json")
 	var me *MalformedError
-	_, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "s-1", "p")
+	_, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "p")
 	if !errors.As(err, &me) {
 		t.Fatalf("got %v, want MalformedError", err)
 	}
@@ -446,21 +448,21 @@ func TestClaudeReportsMalformedOutput(t *testing.T) {
 
 func TestClaudeReportsErrorPayload(t *testing.T) {
 	f := xexec.NewFake().RespondOK("claude", `{"is_error":true,"error":"rate limited","session_id":"s-1"}`)
-	if _, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "s-1", "p"); err == nil {
+	if _, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "p"); err == nil {
 		t.Fatal("expected error payload to surface")
 	}
 }
 
 func TestClaudeRequiresSessionID(t *testing.T) {
 	f := xexec.NewFake().RespondOK("claude", `{"result":"{}"}`)
-	if _, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "s-1", "p"); err == nil {
+	if _, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "p"); err == nil {
 		t.Fatal("expected error when no session id is returned")
 	}
 }
 
 func TestClaudePropagatesInvocationFailure(t *testing.T) {
 	f := xexec.NewFake().Respond("claude", xexec.Response{Stderr: "command not found", Err: xexec.ErrExit})
-	if _, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "s-1", "p"); err == nil {
+	if _, err := (&Claude{Runner: f}).Review(context.Background(), "/wt", "p"); err == nil {
 		t.Fatal("expected invocation failure")
 	}
 }

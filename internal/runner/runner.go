@@ -19,8 +19,12 @@ import (
 const RubricVersion = "code-review@1"
 
 // Reviewer performs one read-only review of a prepared worktree.
+//
+// No session id is passed in: the identity of a conversation is issued by the
+// reviewer and reported back, because an id asserted by the caller is consumed
+// on first use and can never be resumed.
 type Reviewer interface {
-	Review(ctx context.Context, dir, sessionID, prompt string) (*ClaudeResult, error)
+	Review(ctx context.Context, dir, prompt string) (*ClaudeResult, error)
 }
 
 // Clock supplies the current time, injected so tests stay deterministic.
@@ -29,9 +33,7 @@ type Clock func() time.Time
 // Runner produces and caches review artifacts.
 type Runner struct {
 	Reviewer Reviewer
-	// NewSessionID mints an id for a fresh conversation.
-	NewSessionID func() string
-	Now          Clock
+	Now      Clock
 	// Timeout bounds a single review invocation. Zero means no bound.
 	Timeout time.Duration
 }
@@ -66,7 +68,12 @@ func (r *Runner) Run(ctx context.Context, artifactDir, worktreeDir string, prov 
 	if cached.Usable(prov) {
 		return &Result{Review: cached, FromCache: true}, nil
 	}
-	reason := cached.StaleReason(prov)
+	// A first-ever run has no cache to be stale against, and reporting one makes
+	// callers announce a re-review of something never reviewed.
+	var reason string
+	if cached != nil {
+		reason = cached.StaleReason(prov)
+	}
 
 	// Record that a run is in flight. Because this status is neither complete
 	// nor valid-as-cache, an interruption here leaves an artifact that can
@@ -85,8 +92,9 @@ func (r *Runner) Run(ctx context.Context, artifactDir, worktreeDir string, prov 
 		defer cancel()
 	}
 
-	sessionID := r.newSessionID()
-	res, err := r.Reviewer.Review(runCtx, worktreeDir, sessionID, Prompt(prov))
+	// No session id is supplied: the reviewer lets the CLI issue one, because an
+	// id we assert here would be consumed and could never be resumed.
+	res, err := r.Reviewer.Review(runCtx, worktreeDir, Prompt(prov))
 	if err != nil {
 		failed := &artifact.Review{
 			Status:     artifact.StatusFailed,
@@ -124,11 +132,18 @@ func (r *Runner) Run(ctx context.Context, artifactDir, worktreeDir string, prov 
 	if err := artifact.WriteReview(artifactDir, review); err != nil {
 		return nil, err
 	}
+	model := res.Model
+	if model == "" {
+		// The reviewer could not report what served the request; the model we
+		// asked for is a better record than nothing.
+		model = prov.Model
+	}
 	if err := artifact.WriteSession(artifactDir, &artifact.Session{
-		SessionID: res.SessionID,
-		Model:     res.Model,
-		CacheKey:  prov.CacheKey(),
-		CreatedAt: r.now(),
+		SessionID:     res.SessionID,
+		Model:         model,
+		ResumeCommand: ResumeCommand(res.SessionID),
+		CacheKey:      prov.CacheKey(),
+		CreatedAt:     r.now(),
 	}); err != nil {
 		return nil, err
 	}
@@ -171,13 +186,6 @@ func (r *Runner) now() time.Time {
 		return r.Now()
 	}
 	return time.Now()
-}
-
-func (r *Runner) newSessionID() string {
-	if r.NewSessionID != nil {
-		return r.NewSessionID()
-	}
-	return ""
 }
 
 // modelReview is the JSON contract the review prompt asks the model to produce.

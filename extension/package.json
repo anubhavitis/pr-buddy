@@ -82,6 +82,21 @@
       {
         "command": "prBuddy.openReviewMarkdown",
         "title": "pr-buddy: Open Review Document"
+      },
+      {
+        "command": "prBuddy.reloadReview",
+        "title": "pr-buddy: Reload Review From Disk",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "prBuddy.openFileDiff",
+        "title": "pr-buddy: Open File Diff",
+        "enablement": "false"
+      },
+      {
+        "command": "prBuddy.openFinding",
+        "title": "pr-buddy: Go To Finding",
+        "enablement": "false"
       }
     ],
     "menus": {

@@ -13,7 +13,7 @@ func TestOrgsIncludesViewerFirst(t *testing.T) {
 	f.RespondOK("gh api user --jq", "anubhavitis\n")
 	f.RespondOK("gh api user/orgs", "Outcome-xyz\nsome-other-org\n")
 
-	orgs, err := New(f).Orgs(context.Background())
+	orgs, _, err := New(f).Orgs(context.Background())
 	if err != nil {
 		t.Fatalf("Orgs: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestOrgsSortsAlphabeticallyAfterViewer(t *testing.T) {
 	f.RespondOK("gh api user --jq", "anubhavitis\n")
 	f.RespondOK("gh api user/orgs", "zulu\nOutcome-xyz\nalpha\n")
 
-	orgs, err := New(f).Orgs(context.Background())
+	orgs, _, err := New(f).Orgs(context.Background())
 	if err != nil {
 		t.Fatalf("Orgs: %v", err)
 	}
@@ -56,18 +56,38 @@ func TestOrgsDegradesWhenMembershipUnreadable(t *testing.T) {
 	f.RespondOK("gh api user --jq", "anubhavitis\n")
 	f.Respond("gh api user/orgs", xexec.Response{Stderr: "403 Forbidden", Err: xexec.ErrExit})
 
-	orgs, err := New(f).Orgs(context.Background())
+	orgs, warning, err := New(f).Orgs(context.Background())
 	if err != nil {
 		t.Fatalf("Orgs should degrade, not fail: %v", err)
 	}
 	if len(orgs) != 1 || !orgs[0].IsViewer {
 		t.Fatalf("expected just the viewer, got %+v", orgs)
 	}
+	// Degrading silently made a token-scope failure look like membership in no
+	// organizations at all.
+	if warning == "" {
+		t.Error("degraded silently; the reason must be reported")
+	}
+}
+
+// A complete list has nothing to warn about.
+func TestOrgsReportsNoWarningOnSuccess(t *testing.T) {
+	f := xexec.NewFake()
+	f.RespondOK("gh api user --jq", "anubhavitis\n")
+	f.RespondOK("gh api user/orgs", "acme\n")
+
+	_, warning, err := New(f).Orgs(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if warning != "" {
+		t.Errorf("unexpected warning on success: %q", warning)
+	}
 }
 
 func TestOrgsFailsWithoutAuthenticatedUser(t *testing.T) {
 	f := xexec.NewFake().RespondOK("gh api user --jq", "")
-	if _, err := New(f).Orgs(context.Background()); err == nil {
+	if _, _, err := New(f).Orgs(context.Background()); err == nil {
 		t.Fatal("expected an error when no user is authenticated")
 	}
 }
@@ -233,7 +253,7 @@ func TestBrowseIssuesNoWriteCommands(t *testing.T) {
 
 	c := New(f)
 	ctx := context.Background()
-	_, _ = c.Orgs(ctx)
+	_, _, _ = c.Orgs(ctx)
 	_, _ = c.Repos(ctx, "acme", 0)
 	_, _ = c.PRs(ctx, "acme/widgets", 0)
 	_, _ = c.ChangedFiles(ctx, "acme/widgets", 42)

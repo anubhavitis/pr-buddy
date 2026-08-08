@@ -17,8 +17,6 @@ import (
 	"github.com/anubhavitis/pr-buddy/internal/render"
 	"github.com/anubhavitis/pr-buddy/internal/runner"
 	"github.com/anubhavitis/pr-buddy/internal/worktree"
-
-	"github.com/google/uuid"
 )
 
 // The subcommands below exist for programmatic callers such as the VS Code
@@ -70,11 +68,18 @@ Emits JSON on stdout.
 		}
 		return emit(map[string]any{"org": *org, "repos": repos})
 	default:
-		orgs, err := client.Orgs(ctx)
+		orgs, warning, err := client.Orgs(ctx)
 		if err != nil {
 			return err
 		}
-		return emit(map[string]any{"orgs": orgs})
+		out := map[string]any{"orgs": orgs}
+		if warning != "" {
+			// Both channels: stderr for a human running this directly, and the
+			// payload so the extension can surface it without parsing stderr.
+			fmt.Fprintln(os.Stderr, "pr-buddy:", warning)
+			out["warning"] = warning
+		}
+		return emit(out)
 	}
 }
 
@@ -141,7 +146,7 @@ func cmdPrepare(args []string) error {
 		return err
 	}
 
-	src, err := sourceRepoDir(ctx, r, cwd, slug)
+	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
 	if err != nil {
 		return err
 	}
@@ -203,8 +208,11 @@ type reviewResult struct {
 	ReviewJSON  string             `json:"review_json"`
 	ReviewMD    string             `json:"review_md"`
 	SessionID   string             `json:"session_id,omitempty"`
-	Counts      map[string]int     `json:"counts"`
-	Findings    []artifact.Finding `json:"findings"`
+	// ResumeCommand is composed by the runner so that every caller offers the
+	// same recipe rather than each assembling its own.
+	ResumeCommand string             `json:"resume_command,omitempty"`
+	Counts        map[string]int     `json:"counts"`
+	Findings      []artifact.Finding `json:"findings"`
 }
 
 // cmdReviewJSON runs a review and reports the result as JSON.
@@ -243,7 +251,7 @@ func cmdReviewJSON(args []string) error {
 	if err != nil {
 		return err
 	}
-	src, err := sourceRepoDir(ctx, r, cwd, slug)
+	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
 	if err != nil {
 		return err
 	}
@@ -260,13 +268,12 @@ func cmdReviewJSON(args []string) error {
 	}
 	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
 	if *force {
-		_ = os.Remove(filepath.Join(artifactDir, "review.json"))
+		discardCachedReview(artifactDir)
 	}
 
 	run := &runner.Runner{
-		Reviewer:     &runner.Claude{Runner: r, Model: *model},
-		NewSessionID: func() string { return uuid.NewString() },
-		Timeout:      *timeout,
+		Reviewer: &runner.Claude{Runner: r, Model: *model},
+		Timeout:  *timeout,
 	}
 	out, err := run.Run(ctx, artifactDir, wt.Path, prov)
 	if err != nil {
@@ -293,6 +300,7 @@ func cmdReviewJSON(args []string) error {
 	}
 	if sess, err := artifact.ReadSession(artifactDir); err == nil {
 		res.SessionID = sess.SessionID
+		res.ResumeCommand = sess.ResumeCommand
 	}
 	return emit(res)
 }
@@ -302,11 +310,15 @@ func cmdReviewJSON(args []string) error {
 // The current directory is used when it is already that repository. Otherwise
 // a bare mirror is kept under the review root, so the extension can open a pull
 // request in a repository the user has never cloned.
-func sourceRepoDir(ctx context.Context, r xexec.Runner, cwd, slug string) (string, error) {
+func sourceRepoDir(ctx context.Context, r xexec.Runner, cwd, slug, root string) (string, error) {
 	if current, err := gh.New(r).CurrentRepo(ctx, cwd); err == nil && current == slug {
 		return cwd, nil
 	}
-	root := defaultRoot()
+	if root == "" {
+		root = defaultRoot()
+	}
+	// The mirror lives under the same root as the worktrees it feeds, so that
+	// -root moves the whole review tree rather than splitting it in two.
 	dir := filepath.Join(root, ".repos", worktree.DirName(slug, 0)+".git")
 	if _, err := os.Stat(dir); err == nil {
 		// Refresh so a newly opened pull request is reachable.
@@ -325,6 +337,16 @@ func sourceRepoDir(ctx context.Context, r xexec.Runner, cwd, slug string) (strin
 
 func reviewDir(root, repo string, number int) string {
 	return filepath.Join(root, ".reviews", worktree.DirName(repo, number))
+}
+
+// discardCachedReview drops a stored review and the session that produced it.
+//
+// The two travel together: a session id belongs to a specific review, so
+// keeping it after discarding the review would advertise a resume command for a
+// conversation that no longer has an artifact.
+func discardCachedReview(artifactDir string) {
+	_ = os.Remove(filepath.Join(artifactDir, "review.json"))
+	_ = os.Remove(filepath.Join(artifactDir, "session.json"))
 }
 
 func prNumber(arg string) (int, error) {
