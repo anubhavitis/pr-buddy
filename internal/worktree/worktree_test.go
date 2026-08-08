@@ -65,6 +65,8 @@ func (fx *fixture) registerWorktree(path string) {
 func TestDirNameAvoidsCollisionsAcrossRepos(t *testing.T) {
 	a := DirName("acme/widgets", 42)
 	b := DirName("other/widgets", 42)
+	// Two repositories can share a name; only the owner separates them, so the
+	// owner must survive into the directory name.
 	if a == b {
 		t.Fatalf("same directory name for different repos: %q", a)
 	}
@@ -73,6 +75,28 @@ func TestDirNameAvoidsCollisionsAcrossRepos(t *testing.T) {
 	}
 	if DirName("acme/widgets", 42) != a {
 		t.Fatal("directory name is not deterministic")
+	}
+}
+
+// The directory is read by a human far more often than by the tool: it shows up
+// in the terminal prompt, in tab titles, and in `ls`. It should say what it is.
+func TestDirNameIsReadable(t *testing.T) {
+	got := DirName("outcome-xyz/outcome-app-monorepo", 2356)
+	want := "outcome-xyz-outcome-app-monorepo-pr-2356"
+	if got != want {
+		t.Errorf("DirName = %q, want %q", got, want)
+	}
+}
+
+// Names long enough to be truncated must stay distinct. Dropping the digest
+// outright made two repositories differing only past the cutoff share one
+// worktree -- and therefore one review.
+func TestDirNameStaysUniqueWhenTruncated(t *testing.T) {
+	long := "some-very-long-organization-name-here/a-really-long-repository-name"
+	a := DirName(long, 42)
+	b := DirName(long+"-suffix", 42)
+	if a == b {
+		t.Fatalf("truncation merged two distinct repositories: %q", a)
 	}
 }
 

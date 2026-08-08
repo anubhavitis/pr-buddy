@@ -83,6 +83,8 @@ export interface ReviewResult {
   review_json: string;
   review_md: string;
   session_id?: string;
+  /** How to reattach to the review conversation. Composed by the binary. */
+  resume_command?: string;
   counts: Record<string, number>;
   findings: Finding[];
 }
