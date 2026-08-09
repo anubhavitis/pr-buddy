@@ -42,6 +42,11 @@
           "id": "prBuddy.review",
           "name": "Review",
           "visibility": "visible"
+        },
+        {
+          "id": "prBuddy.checks",
+          "name": "CI Checks",
+          "visibility": "visible"
         }
       ]
     },
@@ -117,12 +122,34 @@
       {
         "command": "prBuddy.openFileDiff",
         "title": "pr-buddy: Open File Diff"
+      },
+      {
+        "command": "prBuddy.refreshChecks",
+        "title": "pr-buddy: Refresh CI Checks",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "prBuddy.openCheck",
+        "title": "pr-buddy: Open Check on GitHub"
+      },
+      {
+        "command": "prBuddy.rerunCheck",
+        "title": "pr-buddy: Re-run Failed Jobs",
+        "icon": "$(debug-restart)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "prBuddy.openFileDiff",
+          "when": "false"
+        },
+        {
+          "command": "prBuddy.openCheck",
+          "when": "false"
+        },
+        {
+          "command": "prBuddy.rerunCheck",
           "when": "false"
         }
       ],
@@ -161,6 +188,11 @@
           "command": "prBuddy.reloadReview",
           "when": "view == prBuddy.review",
           "group": "navigation@4"
+        },
+        {
+          "command": "prBuddy.refreshChecks",
+          "when": "view == prBuddy.checks",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -187,6 +219,11 @@
         {
           "command": "prBuddy.unmarkReviewed",
           "when": "view == prBuddy.review && viewItem == reviewFileDone",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.rerunCheck",
+          "when": "view == prBuddy.checks && viewItem == checkFailed",
           "group": "inline"
         }
       ]

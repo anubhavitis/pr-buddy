@@ -59,9 +59,19 @@ future editor integration are derived from it, never the reverse.
   line without changing the issue, and an ID that churns cannot support future
   suppressions.
 
-**`internal/gh`** — read-only. A test asserts no `pr comment`/`review`/`merge`/
-`close`/`edit` command is ever issued. Base and head SHAs come from GitHub, never
-from whatever is checked out locally.
+**`internal/gh`** — read-only with exactly one exception. A test asserts no
+`pr comment`/`review`/`merge`/`close`/`edit` command is ever issued. Base and head
+SHAs come from GitHub, never from whatever is checked out locally.
+
+The exception is `checks.go`'s `RerunChecks`, the only call in pr-buddy that
+changes anything on GitHub. It re-runs the failed jobs of a workflow the author
+already configured, and cannot publish review content, comment, approve, or
+merge. Nothing derived from the model reaches it: the run id is parsed from a
+check GitHub itself reported. It is still a write — it spends the repository's CI
+minutes and triggers whatever the workflow does on completion — so the extension
+confirms with the reviewer before calling it. `TestChecksIssueOnlyTheOnePermittedWrite`
+pins it as the *only* permitted write; adding a second one means changing that
+test deliberately rather than slipping past it.
 
 **`internal/worktree`** — worktrees are detached (nothing can be pushed from them),
 named by a digest of the repo slug (so PR 42 in two repos cannot collide), and live
@@ -102,7 +112,9 @@ built around, and it is easy to break by accident:
   *precisely* so that anything writing in the worktree — a stray build, a test
   run — cannot reach back into the reviewer's checkout. Replacing it with a
   symlink would silently reintroduce that path.
-- Findings stay local. GitHub comments are always authored by the human.
+- Findings stay local. GitHub comments are always authored by the human. The one
+  thing pr-buddy sends to GitHub is a confirmed re-run of failed CI jobs; no
+  review output ever leaves the machine.
 
 Tests in `worktree` and `runner` assert these properties directly. If one starts
 failing, the safety model regressed — do not adjust the test to match the code.

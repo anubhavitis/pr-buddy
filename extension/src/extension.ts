@@ -2,6 +2,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 import {
+  CheckRun,
+  checks as fetchChecks,
   Finding,
   Prepared,
   PrBuddyError,
@@ -11,6 +13,7 @@ import {
   review as runReview,
   setupDeps,
 } from "./prBuddy";
+import { ChecksTreeProvider } from "./checksTree";
 import { BASE_SCHEME, BaseContentProvider, baseUri } from "./baseContent";
 import { PullRequestNode, PullRequestTreeProvider } from "./pullRequestTree";
 import {
@@ -27,14 +30,22 @@ import {
 
 let prTree: PullRequestTreeProvider;
 let reviewTree: ReviewTreeProvider;
+let checksTree: ChecksTreeProvider;
 let terminal: vscode.Terminal | undefined;
 let diagnostics: vscode.DiagnosticCollection;
 /** Watches the current review artifact so an out-of-band run is picked up. */
 let artifactWatcher: vscode.FileSystemWatcher | undefined;
+/**
+ * Re-reads CI while anything is still running. Held as a single handle and
+ * cleared before each replacement, so switching pull requests cannot leave a
+ * timer polling the one the reviewer left behind.
+ */
+let checksPoll: NodeJS.Timeout | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   prTree = new PullRequestTreeProvider(context.workspaceState);
   reviewTree = new ReviewTreeProvider();
+  checksTree = new ChecksTreeProvider();
   diagnostics = vscode.languages.createDiagnosticCollection("pr-buddy");
 
   const prView = vscode.window.createTreeView("prBuddy.pullRequests", {
@@ -53,6 +64,9 @@ export function activate(context: vscode.ExtensionContext): void {
     prView,
     vscode.window.createTreeView("prBuddy.review", {
       treeDataProvider: reviewTree,
+    }),
+    vscode.window.createTreeView("prBuddy.checks", {
+      treeDataProvider: checksTree,
     }),
     vscode.workspace.registerTextDocumentContentProvider(
       BASE_SCHEME,
@@ -82,6 +96,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("prBuddy.openTerminal", openTerminal),
     vscode.commands.registerCommand("prBuddy.resumeChat", resumeChat),
     vscode.commands.registerCommand("prBuddy.openFileDiff", openFileDiff),
+    vscode.commands.registerCommand("prBuddy.refreshChecks", () =>
+      loadChecks(true),
+    ),
+    vscode.commands.registerCommand("prBuddy.openCheck", openCheck),
+    vscode.commands.registerCommand("prBuddy.rerunCheck", rerunCheck),
     vscode.commands.registerCommand("prBuddy.openOnGitHub", openOnGitHub),
     vscode.commands.registerCommand(
       "prBuddy.openReviewMarkdown",
@@ -93,6 +112,7 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {
   terminal?.dispose();
   artifactWatcher?.dispose();
+  stopChecksPoll();
 }
 
 /**
@@ -167,6 +187,7 @@ async function openPullRequest(node: PullRequestNode): Promise<void> {
   await openFirstFile(prepared);
 
   void loadProgress(prepared);
+  void loadChecks();
   // Deliberately not awaited: the diff is already readable, and the dependency
   // copy takes far longer than the checkout it follows.
   void setupDependencies(prepared);
@@ -274,6 +295,127 @@ function filePathOf(node: unknown): string | undefined {
   if (node && typeof node === "object" && "relPath" in node) {
     const { relPath } = node as { relPath?: unknown };
     return typeof relPath === "string" ? relPath : undefined;
+  }
+  return undefined;
+}
+
+/** How often CI is re-read while any check is still running. */
+const CHECKS_POLL_MS = 20_000;
+
+/**
+ * Reads CI for the open pull request, and keeps reading while anything is still
+ * running.
+ *
+ * The timer is rescheduled after each response rather than run on a fixed
+ * interval, so a slow or failing request cannot stack up overlapping fetches,
+ * and it stops as soon as every check has settled.
+ */
+async function loadChecks(manual = false): Promise<void> {
+  stopChecksPoll();
+  const state = reviewTree.current();
+  if (!state) {
+    checksTree.set(undefined);
+    return;
+  }
+  const { repo, pr_number: prNumber } = state.prepared;
+  const existing = checksTree.current();
+  checksTree.set({
+    repo,
+    prNumber,
+    checks: existing?.prNumber === prNumber ? existing.checks : [],
+    loading: true,
+  });
+
+  try {
+    const result = await fetchChecks(repo, prNumber);
+    // The reviewer may have moved on while this ran.
+    if (reviewTree.current()?.prepared.pr_number !== prNumber) {
+      return;
+    }
+    checksTree.set({ repo, prNumber, checks: result.checks });
+    if (checksTree.anyRunning()) {
+      scheduleChecksPoll();
+    }
+  } catch (err) {
+    if (reviewTree.current()?.prepared.pr_number !== prNumber) {
+      return;
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    checksTree.set({ repo, prNumber, checks: [], error: message });
+    // Only a refresh the reviewer asked for is worth a dialog; a background
+    // poll failing is already visible as a row in the panel.
+    if (manual) {
+      showError(err);
+    }
+  }
+}
+
+function scheduleChecksPoll(): void {
+  stopChecksPoll();
+  checksPoll = setTimeout(() => void loadChecks(), CHECKS_POLL_MS);
+}
+
+function stopChecksPoll(): void {
+  if (checksPoll) {
+    clearTimeout(checksPoll);
+    checksPoll = undefined;
+  }
+}
+
+async function openCheck(check: CheckRun): Promise<void> {
+  if (check?.url) {
+    await vscode.env.openExternal(vscode.Uri.parse(check.url));
+  }
+}
+
+/**
+ * Re-runs a workflow run's failed jobs.
+ *
+ * The only action in pr-buddy that changes anything on GitHub, so it is
+ * confirmed rather than fired from a click: it spends the repository's CI
+ * minutes and sets off whatever the workflow does on completion.
+ */
+async function rerunCheck(node: unknown): Promise<void> {
+  const state = reviewTree.current();
+  const check = checkOf(node);
+  if (!state || !check?.workflow_run_id) {
+    return;
+  }
+  const { repo, pr_number: prNumber } = state.prepared;
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `Re-run failed jobs for ${repo}#${prNumber}?`,
+    {
+      modal: true,
+      detail:
+        "This runs on GitHub, spends the repository's CI minutes, and triggers whatever the workflow does on completion. It is the only action pr-buddy takes that writes to GitHub.",
+    },
+    "Re-run Failed Jobs",
+  );
+  if (confirmed !== "Re-run Failed Jobs") {
+    return;
+  }
+
+  try {
+    const result = await fetchChecks(repo, prNumber, check.workflow_run_id);
+    if (reviewTree.current()?.prepared.pr_number !== prNumber) {
+      return;
+    }
+    checksTree.set({ repo, prNumber, checks: result.checks });
+    vscode.window.setStatusBarMessage("pr-buddy: re-run requested", 4000);
+    // GitHub takes a moment to report the restarted jobs as running, so the
+    // panel would otherwise sit on the old conclusions until the next manual
+    // refresh.
+    scheduleChecksPoll();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+/** Reads the check out of a checks-tree node. */
+function checkOf(node: unknown): CheckRun | undefined {
+  if (node && typeof node === "object" && "check" in node) {
+    return (node as { check?: CheckRun }).check;
   }
   return undefined;
 }
@@ -389,6 +531,8 @@ async function endReview(): Promise<void> {
   terminal = undefined;
   artifactWatcher?.dispose();
   artifactWatcher = undefined;
+  stopChecksPoll();
+  checksTree.set(undefined);
   reviewTree.set(undefined);
   await closeWorktreeTabs(worktree);
 }

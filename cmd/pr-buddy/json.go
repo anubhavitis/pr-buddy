@@ -362,6 +362,79 @@ func cmdProgress(args []string) error {
 	return emit(progressResult{Repo: slug, PRNumber: number, Reviewed: reviewed})
 }
 
+type checksResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	// HeadSHA is the commit the checks were reported against, so a caller can
+	// tell a stale answer from a current one.
+	HeadSHA string        `json:"head_sha"`
+	Checks  []gh.CheckRun `json:"checks"`
+	// Rerun is set when -rerun was given and the re-run was accepted.
+	Rerun bool `json:"rerun,omitempty"`
+}
+
+// cmdChecks reports the CI check runs for a pull request's head, and can re-run
+// the failed jobs of one workflow run.
+//
+// The head SHA comes from GitHub rather than the worktree: a checkout can be
+// behind, and reporting checks for a commit the author has already replaced is
+// worse than reporting none.
+func cmdChecks(args []string) error {
+	fs := flag.NewFlagSet("checks", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	rerun := fs.Int64("rerun", 0, "re-run the failed jobs of this workflow run id")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy checks [-repo <owner/name>] [-rerun <workflow-run-id>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	cwd, _ := os.Getwd()
+	client := gh.New(r)
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	pr, err := client.ViewPR(ctx, cwd, slug, number)
+	if err != nil {
+		return err
+	}
+
+	res := checksResult{Repo: slug, PRNumber: number, HeadSHA: pr.HeadSHA}
+	if *rerun > 0 {
+		if err := client.RerunChecks(ctx, slug, *rerun); err != nil {
+			return err
+		}
+		res.Rerun = true
+	}
+
+	// Listed after any re-run so the caller sees the state the re-run produced
+	// rather than the one it replaced.
+	checks, err := client.ChecksFor(ctx, slug, pr.HeadSHA)
+	if err != nil {
+		return err
+	}
+	res.Checks = checks
+	if res.Checks == nil {
+		res.Checks = []gh.CheckRun{}
+	}
+
+	return emit(res)
+}
+
 // blobSHA reports git's content hash for one path at the worktree's head.
 func blobSHA(ctx context.Context, r xexec.Runner, worktreePath, path string) (string, error) {
 	out, err := r.Run(ctx, worktreePath, "git", "rev-parse", "HEAD:"+path)

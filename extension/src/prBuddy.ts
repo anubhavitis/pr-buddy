@@ -112,6 +112,27 @@ export interface ProgressResult {
   reviewed: string[];
 }
 
+export interface CheckRun {
+  name: string;
+  /** queued, in_progress, or completed. */
+  status: string;
+  /** Empty until status is completed. */
+  conclusion: string;
+  started_at: string;
+  completed_at: string;
+  url: string;
+  /** Zero when the check came from something other than Actions. */
+  workflow_run_id: number;
+}
+
+export interface ChecksResult {
+  repo: string;
+  pr_number: number;
+  head_sha: string;
+  checks: CheckRun[];
+  rerun?: boolean;
+}
+
 export interface DepsResult {
   repo: string;
   pr_number: number;
@@ -291,6 +312,27 @@ export async function progress(
   }
   args.push(String(prNumber));
   return run<ProgressResult>(args, token, 60_000);
+}
+
+/**
+ * Reads the CI check runs for the pull request's head.
+ *
+ * Passing rerunID re-runs that workflow run's failed jobs before reporting —
+ * the one call in this extension that changes anything on GitHub, so callers
+ * confirm with the reviewer first.
+ */
+export async function checks(
+  repo: string,
+  prNumber: number,
+  rerunID?: number,
+  token?: vscode.CancellationToken,
+): Promise<ChecksResult> {
+  const args = ["checks", "-repo", repo];
+  if (rerunID) {
+    args.push("-rerun", String(rerunID));
+  }
+  args.push(String(prNumber));
+  return run<ChecksResult>(args, token, 60_000);
 }
 
 /**

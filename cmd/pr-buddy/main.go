@@ -50,6 +50,8 @@ func run() error {
 			return cmdDeps(os.Args[2:])
 		case "progress":
 			return cmdProgress(os.Args[2:])
+		case "checks":
+			return cmdChecks(os.Args[2:])
 		}
 	}
 
