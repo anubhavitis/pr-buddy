@@ -8,6 +8,7 @@ import {
   prepare,
   remove as removeWorktree,
   review as runReview,
+  setupDeps,
 } from "./prBuddy";
 import { BASE_SCHEME, BaseContentProvider, baseUri } from "./baseContent";
 import { PullRequestNode, PullRequestTreeProvider } from "./pullRequestTree";
@@ -140,6 +141,10 @@ async function openPullRequest(node: PullRequestNode): Promise<void> {
   await openTerminal();
   await openFirstFile(prepared);
 
+  // Deliberately not awaited: the diff is already readable, and the dependency
+  // copy takes far longer than the checkout it follows.
+  void setupDependencies(prepared);
+
   const auto = vscode.workspace
     .getConfiguration("prBuddy")
     .get<boolean>("autoReviewOnOpen", true);
@@ -202,6 +207,61 @@ async function review(force: boolean): Promise<void> {
           reviewTree.set(current);
         }
         showError(err);
+      }
+    },
+  );
+}
+
+/**
+ * Copies the reviewer's installed dependencies into the worktree, so imports
+ * resolve and go-to-definition works.
+ *
+ * Runs in the background: a checkout takes seconds and this can take a minute,
+ * and the reviewer should be reading the diff throughout. Failure is reported in
+ * the panel rather than as an error dialog — the worktree is still readable
+ * without dependencies, just harder to navigate.
+ */
+async function setupDependencies(prepared: Prepared): Promise<void> {
+  const config = vscode.workspace.getConfiguration("prBuddy");
+  if (!config.get<boolean>("setupDependencies", true)) {
+    return;
+  }
+  const sources = config.get<Record<string, string>>("sourceCheckouts", {});
+  const source = sources[prepared.repo];
+  if (!source) {
+    return;
+  }
+
+  const prNumber = prepared.pr_number;
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Window,
+      title: `pr-buddy: setting up dependencies for #${prNumber}`,
+      cancellable: true,
+    },
+    async (_progress, token) => {
+      try {
+        const result = await setupDeps(prepared.repo, prNumber, source, token);
+        const current = reviewTree.current();
+        // The reviewer may have moved on while this ran.
+        if (!current || current.prepared.pr_number !== prNumber) {
+          return;
+        }
+        current.depsReady = result.cloned || result.already_present;
+        current.depsLockfileDiffers = result.lockfile_differs;
+        reviewTree.set(current);
+        if (result.cloned) {
+          vscode.window.setStatusBarMessage(
+            "pr-buddy: dependencies ready — imports now resolve",
+            5000,
+          );
+        }
+      } catch (err) {
+        const current = reviewTree.current();
+        if (current && current.prepared.pr_number === prNumber) {
+          current.depsError = err instanceof Error ? err.message : String(err);
+          reviewTree.set(current);
+        }
       }
     },
   );

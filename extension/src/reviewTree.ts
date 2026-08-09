@@ -58,6 +58,15 @@ export interface ReviewState {
    * than silently showing "not reviewed".
    */
   staleReason?: string;
+  /** The worktree has the dependency tree, so imports resolve. */
+  depsReady?: boolean;
+  /**
+   * The copied dependencies were resolved from a different lockfile than this
+   * pull request's, so types may not be the ones it would build against.
+   */
+  depsLockfileDiffers?: boolean;
+  /** Why dependency setup failed, when it did. */
+  depsError?: string;
 }
 
 export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
@@ -182,6 +191,23 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
         kind: "message",
         text: `Cached review is out of date: ${staleReason}. Re-review to refresh.`,
         icon: "warning",
+      });
+    }
+
+    // Only worth saying when it changes what the reviewer should trust: that
+    // resolved types may not match the pull request, or that navigation is
+    // degraded because the copy failed.
+    if (state.depsError) {
+      nodes.push({
+        kind: "message",
+        text: `Dependencies unavailable: ${state.depsError}. Imports will not resolve.`,
+        icon: "warning",
+      });
+    } else if (state.depsReady && state.depsLockfileDiffers) {
+      nodes.push({
+        kind: "message",
+        text: "Dependencies copied from your checkout, whose lockfile differs from this pull request's — resolved types may not match what it builds against.",
+        icon: "info",
       });
     }
 

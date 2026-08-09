@@ -105,6 +105,18 @@ export interface RemoveResult {
   worktree: string;
 }
 
+export interface DepsResult {
+  repo: string;
+  pr_number: number;
+  worktree: string;
+  cloned: boolean;
+  already_present: boolean;
+  /** The cloned tree came from a different lockfile than this pull request's. */
+  lockfile_differs: boolean;
+  paths?: string[];
+  source?: string;
+}
+
 export class PrBuddyError extends Error {
   constructor(
     message: string,
@@ -248,4 +260,25 @@ export async function remove(
     token,
     60_000,
   );
+}
+
+/**
+ * Clones the reviewer's installed dependencies into the worktree so imports
+ * resolve and the editor can navigate.
+ *
+ * Slow enough — a minute on a large monorepo — that callers run it in the
+ * background rather than making the reviewer wait to read the diff.
+ */
+export async function setupDeps(
+  repo: string,
+  prNumber: number,
+  source: string,
+  token?: vscode.CancellationToken,
+): Promise<DepsResult> {
+  const args = ["deps", "-repo", repo];
+  if (source) {
+    args.push("-source", source);
+  }
+  args.push(String(prNumber));
+  return run<DepsResult>(args, token, 15 * 60_000);
 }

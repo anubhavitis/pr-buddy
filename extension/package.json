@@ -168,6 +168,19 @@
           "default": true,
           "description": "Start a review in the background when a pull request is opened."
         },
+        "prBuddy.setupDependencies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Copy your installed dependencies into the review worktree so imports resolve and go-to-definition works. Nothing from the pull request is installed or run; the copy is copy-on-write, so writing in the worktree cannot affect your own checkout."
+        },
+        "prBuddy.sourceCheckouts": {
+          "type": "object",
+          "default": {},
+          "description": "Where each repository is checked out locally, as owner/name -> absolute path. Dependencies are copied from here. Repositories with no entry are skipped.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "prBuddy.repoLimit": {
           "type": "number",
           "default": 100,

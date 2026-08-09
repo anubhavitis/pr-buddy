@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anubhavitis/pr-buddy/internal/artifact"
+	"github.com/anubhavitis/pr-buddy/internal/deps"
 	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
 	"github.com/anubhavitis/pr-buddy/internal/gh"
 	"github.com/anubhavitis/pr-buddy/internal/render"
@@ -197,6 +198,81 @@ func cmdPrepare(args []string) error {
 	return emit(res)
 }
 
+// depsResult reports what dependency setup did.
+type depsResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	Worktree string `json:"worktree"`
+	Cloned   bool   `json:"cloned"`
+	// AlreadyPresent reports that the worktree already had dependencies.
+	AlreadyPresent bool `json:"already_present"`
+	// LockfileDiffers warns that the cloned tree was resolved from a different
+	// lockfile than this pull request's, so resolved types may not be the ones
+	// it would build against.
+	LockfileDiffers bool     `json:"lockfile_differs"`
+	Paths           []string `json:"paths,omitempty"`
+	Source          string   `json:"source,omitempty"`
+}
+
+// cmdDeps clones the reviewer's installed dependencies into a pull request's
+// worktree, so imports resolve and the editor can navigate.
+//
+// This is a separate subcommand rather than part of prepare because it is by far
+// the slowest step: a checkout takes seconds and a dependency clone can take a
+// minute. Callers run it in the background while the diff is already readable.
+//
+// Nothing from the pull request is installed or executed; see internal/deps.
+func cmdDeps(args []string) error {
+	fs := flag.NewFlagSet("deps", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	source := fs.String("source", "", "checkout whose installed dependencies are cloned (defaults to the current directory)")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy deps [-repo <owner/name>] [-source <dir>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = gh.New(r).CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	src := *source
+	if src == "" {
+		src = cwd
+	}
+
+	path := worktree.New(r, *root).Path(slug, number)
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("no worktree for %s#%d; run prepare first", slug, number)
+	}
+
+	res, err := deps.New(r, src).Prepare(ctx, path)
+	if err != nil {
+		return err
+	}
+	return emit(depsResult{
+		Repo: slug, PRNumber: number, Worktree: path,
+		Cloned: res.Cloned, AlreadyPresent: res.AlreadyPresent,
+		LockfileDiffers: res.LockfileDiffers, Paths: res.Paths,
+		Source: src,
+	})
+}
+
 // removeResult reports what a remove took away.
 type removeResult struct {
 	Repo     string `json:"repo"`
@@ -264,15 +340,15 @@ func cmdRemove(args []string) error {
 
 // reviewResult reports the outcome of a review run.
 type reviewResult struct {
-	Repo        string             `json:"repo"`
-	PRNumber    int                `json:"pr_number"`
-	Status      string             `json:"status"`
-	FromCache   bool               `json:"from_cache"`
-	StaleReason string             `json:"stale_reason,omitempty"`
-	Worktree    string             `json:"worktree"`
-	ReviewJSON  string             `json:"review_json"`
-	ReviewMD    string             `json:"review_md"`
-	SessionID   string             `json:"session_id,omitempty"`
+	Repo        string `json:"repo"`
+	PRNumber    int    `json:"pr_number"`
+	Status      string `json:"status"`
+	FromCache   bool   `json:"from_cache"`
+	StaleReason string `json:"stale_reason,omitempty"`
+	Worktree    string `json:"worktree"`
+	ReviewJSON  string `json:"review_json"`
+	ReviewMD    string `json:"review_md"`
+	SessionID   string `json:"session_id,omitempty"`
 	// ResumeCommand is composed by the runner so that every caller offers the
 	// same recipe rather than each assembling its own.
 	ResumeCommand string             `json:"resume_command,omitempty"`
