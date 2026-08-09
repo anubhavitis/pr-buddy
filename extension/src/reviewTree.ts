@@ -1,18 +1,23 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
-import { Finding, Prepared, ReadingGroup, StoredReview } from "./prBuddy";
+import { Prepared, StoredReview } from "./prBuddy";
 
 /**
- * The review panel: reading order first, findings second.
+ * The review panel: a flat checklist of the pull request's changed files.
  *
- * The reading guide is the point of the tool — files are listed in the order
- * the review says to read them, not alphabetically. Falls back to GitHub's
- * changed-file order while a review is still running.
+ * Reading order survives, grouping does not. The reading guide names a file once
+ * per group it belongs to, and a tree gives no signal that two rows are the same
+ * file — the repetition, not the order, is what made the panel unreadable. So
+ * groups collapse into ordering plus a tooltip, and each file appears exactly
+ * once at its earliest mention.
+ *
+ * Findings are deliberately absent. They reach the reviewer as diagnostics, where
+ * they sit on the lines they describe and the Problems panel filters them by
+ * file, and as prose in the rendered review. A tree row can do neither well.
  */
 
-export type ReviewNode =
-  SummaryNode | GroupNode | FileNode | FindingNode | MessageNode;
+export type ReviewNode = SummaryNode | FileNode | MessageNode;
 
 interface SummaryNode {
   kind: "summary";
@@ -22,21 +27,11 @@ interface SummaryNode {
   tooltip?: string;
 }
 
-interface GroupNode {
-  kind: "group";
-  group: ReadingGroup;
-  index: number;
-}
-
 interface FileNode {
   kind: "file";
   relPath: string;
-  findings: Finding[];
-}
-
-interface FindingNode {
-  kind: "finding";
-  finding: Finding;
+  /** The reading group that placed this file here, when one did. */
+  groupName?: string;
 }
 
 interface MessageNode {
@@ -84,28 +79,12 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
 
   private state?: ReviewState;
 
-  /**
-   * Whether the reader has folded the reading groups away. VS Code re-reads
-   * `collapsibleState` on every refresh, so a hardcoded `Expanded` would undo
-   * the collapse the moment a review reloads — the flag is what makes it stick.
-   */
-  private collapsed = false;
-
   current(): ReviewState | undefined {
     return this.state;
   }
 
   set(state: ReviewState | undefined): void {
-    if (state?.prepared.pr_number !== this.state?.prepared.pr_number) {
-      this.collapsed = false;
-    }
     this.state = state;
-    this.changed.fire(undefined);
-  }
-
-  /** Folds the reading groups; a new pull request starts expanded again. */
-  collapse(): void {
-    this.collapsed = true;
     this.changed.fire(undefined);
   }
 
@@ -136,13 +115,9 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
   getTreeItem(node: ReviewNode): vscode.TreeItem {
     switch (node.kind) {
       case "summary":
-        return summaryItem(node);
-      case "group":
-        return groupItem(node, this.collapsed);
+        return summaryItem(node, this.state);
       case "file":
         return fileItem(node, this.state);
-      case "finding":
-        return findingItem(node, this.state);
       case "message":
         return messageItem(node);
     }
@@ -159,46 +134,26 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
         },
       ];
     }
-
-    if (!node) {
-      return this.roots(state);
-    }
-    if (node.kind === "group") {
-      return node.group.paths.map((p) => ({
-        kind: "file",
-        relPath: p,
-        findings: findingsFor(state.review, p),
-      }));
-    }
-    if (node.kind === "file") {
-      return node.findings.map((f) => ({ kind: "finding", finding: f }));
-    }
-    return [];
+    return node ? [] : this.roots(state);
   }
 
   private roots(state: ReviewState): ReviewNode[] {
     const { prepared, review, running, staleReason } = state;
     const nodes: ReviewNode[] = [];
 
-    const counts = countBySeverity(review?.findings ?? []);
-    const total = prepared.changed_files?.length ?? 0;
-    const done = state.reviewed?.size ?? 0;
-    // How far through the files the reviewer is answers the question the panel
-    // is open for; finding counts do not.
-    const read = total && done ? ` · ${done}/${total} read` : "";
+    const files = orderedFiles(prepared, review);
+    const reviewed = state.reviewed;
+    // Counted against what is on screen, not against the stored record: a mark
+    // can outlive the pull request's interest in the file it names, and a
+    // denominator the reviewer cannot see rows for is one they cannot check.
+    const done = reviewed ? files.filter((f) => reviewed.has(f)).length : 0;
     nodes.push({
       kind: "summary",
       // The number alone: the panel is narrow, and a title repeated on every
       // row crowds out the detail that actually changes.
       label: `PR-${prepared.pr_number}`,
       tooltip: prepared.title,
-      detail: running
-        ? "reviewing…"
-        : review
-          ? `${counts.error} error · ${counts.warning} warning · ${counts.info} info${read}`
-          : staleReason
-            ? `out of date${read}`
-            : `not reviewed${read}`,
+      detail: files.length ? `${done}/${files.length} read` : undefined,
     });
 
     // A superseded review is deliberately not shown, so say why rather than
@@ -228,44 +183,66 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
       });
     }
 
-    if (review?.summary) {
-      // A tree row is one line: the rest of a paragraph is invisible anyway,
-      // and letting it run only pushes the reading order further down.
-      nodes.push({
-        kind: "message",
-        text: firstSentence(review.summary),
-        tooltip: review.summary,
-        icon: "note",
-      });
-    }
-
-    const guide = review?.reading_guide ?? [];
-    if (guide.length) {
-      guide.forEach((group, index) =>
-        nodes.push({ kind: "group", group, index }),
-      );
-      return nodes;
-    }
-
-    // No reading order yet: show GitHub's changed files so the worktree is
-    // usable while the review runs.
-    const files = prepared.changed_files ?? [];
     if (running) {
       nodes.push({
         kind: "message",
-        text: "Reading order appears when the review finishes",
+        text: "Reviewing…",
         icon: "loading~spin",
       });
     }
-    for (const relPath of files) {
+
+    // The file list is the panel now. An empty one has to explain itself, or a
+    // failed changed-files call reads as a pull request that changed nothing.
+    if (!files.length) {
+      if (!running) {
+        nodes.push({
+          kind: "message",
+          text: "No changed files listed. Re-open the pull request to retry.",
+          icon: "warning",
+        });
+      }
+      return nodes;
+    }
+
+    // Read files sink to the bottom, where the run of green checks marks the
+    // boundary without spending a row on a heading.
+    const unread = files.filter((f) => !reviewed?.has(f));
+    const read = files.filter((f) => reviewed?.has(f));
+    for (const relPath of [...unread, ...read]) {
       nodes.push({
         kind: "file",
         relPath,
-        findings: findingsFor(review, relPath),
+        groupName: groupNameOf(review, relPath),
       });
     }
     return nodes;
   }
+}
+
+/**
+ * The pull request's changed files in the order the review says to read them.
+ *
+ * Guide paths are filtered against the changed set on purpose: the model reads
+ * files for context that the pull request never touched, and offering those a
+ * reviewed-mark would record progress against code nobody is reviewing.
+ */
+export function orderedFiles(
+  prepared: Prepared,
+  review: StoredReview | undefined,
+): string[] {
+  const changed = prepared.changed_files ?? [];
+  const remaining = new Set(changed);
+  const ordered: string[] = [];
+  for (const group of review?.reading_guide ?? []) {
+    for (const p of group.paths ?? []) {
+      // First mention wins. The guide is ordered by what must be understood
+      // first, so a later group repeating a file is not asking for it later.
+      if (remaining.delete(p)) {
+        ordered.push(p);
+      }
+    }
+  }
+  return [...ordered, ...changed.filter((p) => remaining.has(p))];
 }
 
 export function readStoredReview(
@@ -278,22 +255,17 @@ export function readStoredReview(
   }
 }
 
-function findingsFor(
+/** The first reading group naming this file, matching orderedFiles' choice. */
+function groupNameOf(
   review: StoredReview | undefined,
   relPath: string,
-): Finding[] {
-  return (review?.findings ?? []).filter((f) => f.location.path === relPath);
+): string | undefined {
+  return (review?.reading_guide ?? []).find((g) =>
+    (g.paths ?? []).includes(relPath),
+  )?.name;
 }
 
-function countBySeverity(findings: Finding[]): Record<string, number> {
-  const counts: Record<string, number> = { error: 0, warning: 0, info: 0 };
-  for (const f of findings) {
-    counts[f.severity] = (counts[f.severity] ?? 0) + 1;
-  }
-  return counts;
-}
-
-function summaryItem(node: SummaryNode): vscode.TreeItem {
+function summaryItem(node: SummaryNode, state?: ReviewState): vscode.TreeItem {
   const item = new vscode.TreeItem(
     node.label,
     vscode.TreeItemCollapsibleState.None,
@@ -302,48 +274,41 @@ function summaryItem(node: SummaryNode): vscode.TreeItem {
   item.tooltip = node.tooltip;
   item.iconPath = new vscode.ThemeIcon("git-pull-request");
   item.contextValue = "reviewSummary";
-  return item;
-}
-
-function groupItem(node: GroupNode, collapsed: boolean): vscode.TreeItem {
-  const item = new vscode.TreeItem(
-    `${node.index + 1}. ${node.group.name}`,
-    collapsed
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.Expanded,
-  );
-  item.description = node.group.summary;
-  item.tooltip = node.group.summary;
-  item.iconPath = new vscode.ThemeIcon("book");
-  item.contextValue = "readingGroup";
+  if (state?.review) {
+    // The written review is where findings live now, so the row summarising it
+    // is the way in.
+    item.command = {
+      command: "prBuddy.openReviewMarkdown",
+      title: "Open Review Document",
+    };
+  }
   return item;
 }
 
 function fileItem(node: FileNode, state?: ReviewState): vscode.TreeItem {
-  const worst = worstSeverity(node.findings);
   const item = new vscode.TreeItem(
     path.basename(node.relPath),
-    node.findings.length
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.None,
+    vscode.TreeItemCollapsibleState.None,
   );
   const reviewed = state?.reviewed?.has(node.relPath) ?? false;
-  item.description = reviewed
-    ? `✓ ${path.dirname(node.relPath)}`
-    : path.dirname(node.relPath);
-  item.tooltip = reviewed
-    ? `${node.relPath}\n\nMarked reviewed. The mark clears by itself if the author changes this file.`
-    : node.relPath;
+  const dir = path.dirname(node.relPath);
+  item.description = reviewed ? `✓ ${dir}` : dir;
+  item.tooltip = [
+    node.relPath,
+    node.groupName ? `\n${node.groupName}` : "",
+    reviewed
+      ? "\nMarked reviewed. The mark clears by itself if the author changes this file."
+      : "",
+  ].join("");
   item.resourceUri = state
     ? vscode.Uri.file(path.join(state.prepared.worktree, node.relPath))
     : undefined;
-  // A finding outranks the check: a file with an unresolved error is worth
-  // seeing as such even once the reviewer has read it.
-  item.iconPath = worst
-    ? severityIcon(worst)
-    : reviewed
-      ? new vscode.ThemeIcon("check", new vscode.ThemeColor("charts.green"))
-      : vscode.ThemeIcon.File;
+  // Left unset while unread so the icon theme resolves the file type; an
+  // explicit ThemeIcon.File would suppress that and flatten every row to the
+  // same generic page.
+  item.iconPath = reviewed
+    ? new vscode.ThemeIcon("check", new vscode.ThemeColor("charts.green"))
+    : undefined;
   // Distinct context values let the menu offer mark or unmark, never both.
   item.contextValue = reviewed ? "reviewFileDone" : "reviewFile";
   if (state) {
@@ -359,35 +324,6 @@ function fileItem(node: FileNode, state?: ReviewState): vscode.TreeItem {
   return item;
 }
 
-function findingItem(node: FindingNode, state?: ReviewState): vscode.TreeItem {
-  const { finding } = node;
-  const item = new vscode.TreeItem(
-    finding.message,
-    vscode.TreeItemCollapsibleState.None,
-  );
-  item.description = finding.location.line
-    ? `:${finding.location.line}`
-    : finding.rule;
-  item.iconPath = severityIcon(finding.severity);
-  item.tooltip = new vscode.MarkdownString(
-    [
-      `**${finding.severity}** · \`${finding.rule}\` · confidence ${Math.round(finding.confidence * 100)}%`,
-      "",
-      finding.message,
-      finding.evidence ? `\n${finding.evidence}` : "",
-    ].join("\n"),
-  );
-  item.contextValue = "finding";
-  if (state) {
-    item.command = {
-      command: "prBuddy.openFinding",
-      title: "Go To Finding",
-      arguments: [finding],
-    };
-  }
-  return item;
-}
-
 function messageItem(node: MessageNode): vscode.TreeItem {
   const item = new vscode.TreeItem(
     node.text,
@@ -396,47 +332,4 @@ function messageItem(node: MessageNode): vscode.TreeItem {
   item.iconPath = new vscode.ThemeIcon(node.icon ?? "info");
   item.tooltip = node.tooltip ?? node.text;
   return item;
-}
-
-/**
- * The first sentence of a summary, bounded so it still fits a tree row.
- *
- * Sentence-first rather than a hard character cut: a summary's opening sentence
- * says what the change does, which is the part worth seeing without hovering.
- */
-function firstSentence(text: string): string {
-  const trimmed = text.trim().replace(/\s+/g, " ");
-  const end = trimmed.search(/[.!?](\s|$)/);
-  const sentence = end > 0 ? trimmed.slice(0, end + 1) : trimmed;
-  return sentence.length > 100 ? `${sentence.slice(0, 99)}…` : sentence;
-}
-
-function worstSeverity(findings: Finding[]): Finding["severity"] | undefined {
-  if (findings.some((f) => f.severity === "error")) {
-    return "error";
-  }
-  if (findings.some((f) => f.severity === "warning")) {
-    return "warning";
-  }
-  return findings.length ? "info" : undefined;
-}
-
-function severityIcon(severity: Finding["severity"]): vscode.ThemeIcon {
-  switch (severity) {
-    case "error":
-      return new vscode.ThemeIcon(
-        "error",
-        new vscode.ThemeColor("problemsErrorIcon.foreground"),
-      );
-    case "warning":
-      return new vscode.ThemeIcon(
-        "warning",
-        new vscode.ThemeColor("problemsWarningIcon.foreground"),
-      );
-    default:
-      return new vscode.ThemeIcon(
-        "info",
-        new vscode.ThemeColor("problemsInfoIcon.foreground"),
-      );
-  }
 }

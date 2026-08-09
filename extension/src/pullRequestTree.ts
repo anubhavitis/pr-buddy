@@ -9,24 +9,19 @@ import {
 } from "./prBuddy";
 
 /**
- * The org → repo → pull request tree.
+ * The open pull requests of one selected repository.
  *
- * Each level is fetched only when expanded. Enumerating every pull request in
- * every repository up front would take minutes on a real account, so children
- * are resolved lazily and cached until an explicit refresh.
+ * Organization and repository are chosen from the title bar rather than
+ * expanded to. Browsing a three-level tree meant paying a network round trip to
+ * reach a list the reviewer already knew they wanted, and every level of nesting
+ * pushed the pull requests — the only rows that are ever clicked — further down.
+ *
+ * The selection is remembered across reloads: a reviewer works out of one
+ * repository for days at a time, and re-picking it every window is the cost this
+ * view exists to remove.
  */
 
-export type Node = OrgNode | RepoNode | PullRequestNode | MessageNode;
-
-export interface OrgNode {
-  kind: "org";
-  org: Org;
-}
-
-export interface RepoNode {
-  kind: "repo";
-  repo: Repo;
-}
+export type Node = PullRequestNode | MessageNode;
 
 export interface PullRequestNode {
   kind: "pr";
@@ -39,7 +34,13 @@ export interface MessageNode {
   kind: "message";
   text: string;
   tooltip?: string;
+  icon?: string;
+  /** Makes the row the way into the picker when there is nothing else to click. */
+  command?: string;
 }
+
+const ORG_KEY = "prBuddy.selectedOrg";
+const REPO_KEY = "prBuddy.selectedRepo";
 
 export class PullRequestTreeProvider implements vscode.TreeDataProvider<Node> {
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
@@ -47,61 +48,128 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<Node> {
 
   private readonly repoCache = new Map<string, Repo[]>();
   private readonly prCache = new Map<string, PullRequest[]>();
+  private orgs?: Org[];
+
+  constructor(private readonly memento: vscode.Memento) {}
+
+  org(): string | undefined {
+    return this.memento.get<string>(ORG_KEY);
+  }
+
+  /** The selected repository as owner/name. */
+  repo(): string | undefined {
+    return this.memento.get<string>(REPO_KEY);
+  }
 
   refresh(): void {
+    this.orgs = undefined;
     this.repoCache.clear();
     this.prCache.clear();
     this.changed.fire(undefined);
   }
 
-  getTreeItem(node: Node): vscode.TreeItem {
-    switch (node.kind) {
-      case "org":
-        return orgItem(node);
-      case "repo":
-        return repoItem(node);
-      case "pr":
-        return prItem(node);
-      case "message":
-        return messageItem(node);
+  /**
+   * Picks an organization, then immediately its repository — choosing an org
+   * alone leaves the view empty, which reads as a failure rather than a step.
+   */
+  async selectOrg(): Promise<void> {
+    const orgs = await this.withError(() => this.allOrgs(), "organizations");
+    if (!orgs?.length) {
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      orgs.map((o) => ({
+        label: o.login,
+        description: o.is_viewer ? "your account" : undefined,
+        picked: o.login === this.org(),
+      })),
+      { title: "Select organization", matchOnDescription: true },
+    );
+    if (!picked) {
+      return;
+    }
+    if (picked.label !== this.org()) {
+      // The old repository belongs to the old org, and keeping it would show
+      // pull requests from an organization the title bar no longer names.
+      await this.memento.update(REPO_KEY, undefined);
+    }
+    await this.memento.update(ORG_KEY, picked.label);
+    this.changed.fire(undefined);
+    await this.selectRepo();
+  }
+
+  async selectRepo(): Promise<void> {
+    const org = this.org();
+    if (!org) {
+      await this.selectOrg();
+      return;
+    }
+    const repos = await this.withError(
+      () => this.reposFor(org),
+      `repositories in ${org}`,
+    );
+    if (!repos?.length) {
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      repos.map((r) => ({
+        label: r.name,
+        // Repos arrive newest-first; the age makes that ordering legible rather
+        // than arbitrary, and is usually how the wanted one is recognised.
+        description: [relativeAge(r.pushed_at), r.private ? "private" : ""]
+          .filter(Boolean)
+          .join(" · "),
+        repo: r,
+      })),
+      { title: `Select repository in ${org}`, matchOnDescription: true },
+    );
+    if (picked) {
+      await this.memento.update(REPO_KEY, picked.repo.name_with_owner);
+      this.changed.fire(undefined);
     }
   }
 
+  getTreeItem(node: Node): vscode.TreeItem {
+    return node.kind === "pr" ? prItem(node) : messageItem(node);
+  }
+
   async getChildren(node?: Node): Promise<Node[]> {
-    try {
-      if (!node) {
-        const orgs = await listOrgs();
-        return orgs.length
-          ? orgs.map((org) => ({ kind: "org", org }) as OrgNode)
-          : [{ kind: "message", text: "No organizations found" }];
-      }
-
-      if (node.kind === "org") {
-        const repos = await this.reposFor(node.org.login);
-        return repos.length
-          ? repos.map((repo) => ({ kind: "repo", repo }) as RepoNode)
-          : [{ kind: "message", text: "No repositories" }];
-      }
-
-      if (node.kind === "repo") {
-        const prs = await this.pullRequestsFor(node.repo.name_with_owner);
-        return prs.length
-          ? prs.map(
-              (pr) =>
-                ({
-                  kind: "pr",
-                  repo: node.repo.name_with_owner,
-                  pr,
-                }) as PullRequestNode,
-            )
-          : [{ kind: "message", text: "No open pull requests" }];
-      }
-
+    if (node) {
       return [];
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return [{ kind: "message", text: "Could not load", tooltip: message }];
     }
+    const repo = this.repo();
+    if (!repo) {
+      return [
+        {
+          kind: "message",
+          text: this.org()
+            ? "Select a repository"
+            : "Select an organization to begin",
+          icon: "search",
+          command: this.org() ? "prBuddy.selectRepo" : "prBuddy.selectOrg",
+        },
+      ];
+    }
+    try {
+      const prs = await this.pullRequestsFor(repo);
+      return prs.length
+        ? prs.map((pr) => ({ kind: "pr", repo, pr }) as PullRequestNode)
+        : [{ kind: "message", text: "No open pull requests", icon: "info" }];
+    } catch (err) {
+      return [
+        {
+          kind: "message",
+          text: "Could not load pull requests",
+          tooltip: err instanceof Error ? err.message : String(err),
+          icon: "warning",
+        },
+      ];
+    }
+  }
+
+  private async allOrgs(): Promise<Org[]> {
+    this.orgs ??= await listOrgs();
+    return this.orgs;
   }
 
   private async reposFor(org: string): Promise<Repo[]> {
@@ -123,34 +191,34 @@ export class PullRequestTreeProvider implements vscode.TreeDataProvider<Node> {
     this.prCache.set(repo, prs);
     return prs;
   }
-}
 
-function orgItem(node: OrgNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(
-    node.org.login,
-    vscode.TreeItemCollapsibleState.Collapsed,
-  );
-  item.iconPath = new vscode.ThemeIcon(
-    node.org.is_viewer ? "account" : "organization",
-  );
-  item.contextValue = "org";
-  return item;
-}
-
-function repoItem(node: RepoNode): vscode.TreeItem {
-  const item = new vscode.TreeItem(
-    node.repo.name,
-    vscode.TreeItemCollapsibleState.Collapsed,
-  );
-  item.iconPath = new vscode.ThemeIcon(node.repo.private ? "lock" : "repo");
-  // Repos arrive newest-first; showing the age makes that ordering legible
-  // instead of looking arbitrary.
-  item.description = relativeAge(node.repo.pushed_at);
-  item.tooltip = node.repo.pushed_at
-    ? `${node.repo.name_with_owner}\nlast push ${node.repo.pushed_at}`
-    : node.repo.name_with_owner;
-  item.contextValue = "repo";
-  return item;
+  /**
+   * Fetches for a picker, reporting failure as a dialog.
+   *
+   * A picker has no row to render a message into, so unlike the tree it has
+   * nowhere to fail quietly.
+   */
+  private async withError<T>(
+    fetch: () => Promise<T[]>,
+    what: string,
+  ): Promise<T[] | undefined> {
+    try {
+      const items = await vscode.window.withProgress(
+        { location: { viewId: "prBuddy.pullRequests" } },
+        fetch,
+      );
+      if (!items.length) {
+        vscode.window.showInformationMessage(`pr-buddy: no ${what} found.`);
+      }
+      return items;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(
+        `pr-buddy: could not list ${what} — ${message}`,
+      );
+      return undefined;
+    }
+  }
 }
 
 /** Compact age like "3d" or "2mo" for a RFC 3339 timestamp; empty when unknown. */
@@ -212,8 +280,11 @@ function messageItem(node: MessageNode): vscode.TreeItem {
     node.text,
     vscode.TreeItemCollapsibleState.None,
   );
-  item.iconPath = new vscode.ThemeIcon("info");
+  item.iconPath = new vscode.ThemeIcon(node.icon ?? "info");
   item.tooltip = node.tooltip;
   item.contextValue = "message";
+  if (node.command) {
+    item.command = { command: node.command, title: node.text };
+  }
   return item;
 }

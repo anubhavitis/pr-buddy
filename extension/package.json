@@ -52,6 +52,16 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "prBuddy.selectOrg",
+        "title": "pr-buddy: Select Organization",
+        "icon": "$(organization)"
+      },
+      {
+        "command": "prBuddy.selectRepo",
+        "title": "pr-buddy: Select Repository",
+        "icon": "$(repo)"
+      },
+      {
         "command": "prBuddy.openPullRequest",
         "title": "pr-buddy: Open Pull Request"
       },
@@ -86,17 +96,13 @@
       },
       {
         "command": "prBuddy.openReviewMarkdown",
-        "title": "pr-buddy: Open Review Document"
+        "title": "pr-buddy: Open Review Document",
+        "icon": "$(book)"
       },
       {
         "command": "prBuddy.reloadReview",
         "title": "pr-buddy: Reload Review From Disk",
         "icon": "$(sync)"
-      },
-      {
-        "command": "prBuddy.collapseReview",
-        "title": "pr-buddy: Collapse Review",
-        "icon": "$(collapse-all)"
       },
       {
         "command": "prBuddy.markReviewed",
@@ -111,10 +117,6 @@
       {
         "command": "prBuddy.openFileDiff",
         "title": "pr-buddy: Open File Diff"
-      },
-      {
-        "command": "prBuddy.openFinding",
-        "title": "pr-buddy: Go To Finding"
       }
     ],
     "menus": {
@@ -122,17 +124,23 @@
         {
           "command": "prBuddy.openFileDiff",
           "when": "false"
-        },
-        {
-          "command": "prBuddy.openFinding",
-          "when": "false"
         }
       ],
       "view/title": [
         {
+          "command": "prBuddy.selectOrg",
+          "when": "view == prBuddy.pullRequests",
+          "group": "navigation@1"
+        },
+        {
+          "command": "prBuddy.selectRepo",
+          "when": "view == prBuddy.pullRequests",
+          "group": "navigation@2"
+        },
+        {
           "command": "prBuddy.refresh",
           "when": "view == prBuddy.pullRequests",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
           "command": "prBuddy.runReview",
@@ -145,9 +153,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "prBuddy.collapseReview",
+          "command": "prBuddy.openReviewMarkdown",
           "when": "view == prBuddy.review",
           "group": "navigation@3"
+        },
+        {
+          "command": "prBuddy.reloadReview",
+          "when": "view == prBuddy.review",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [

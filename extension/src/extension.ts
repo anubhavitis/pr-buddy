@@ -13,7 +13,11 @@ import {
 } from "./prBuddy";
 import { BASE_SCHEME, BaseContentProvider, baseUri } from "./baseContent";
 import { PullRequestNode, PullRequestTreeProvider } from "./pullRequestTree";
-import { readStoredReview, ReviewTreeProvider } from "./reviewTree";
+import {
+  orderedFiles,
+  readStoredReview,
+  ReviewTreeProvider,
+} from "./reviewTree";
 
 /**
  * Opening a pull request checks it out and shows the diff immediately, then
@@ -29,14 +33,24 @@ let diagnostics: vscode.DiagnosticCollection;
 let artifactWatcher: vscode.FileSystemWatcher | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
-  prTree = new PullRequestTreeProvider();
+  prTree = new PullRequestTreeProvider(context.workspaceState);
   reviewTree = new ReviewTreeProvider();
   diagnostics = vscode.languages.createDiagnosticCollection("pr-buddy");
 
+  const prView = vscode.window.createTreeView("prBuddy.pullRequests", {
+    treeDataProvider: prTree,
+  });
+  // The view title is the only place the current selection is visible, since
+  // the org and repo are no longer rows.
+  const showSelection = () => {
+    const repo = prTree.repo();
+    prView.description = repo ?? prTree.org() ?? "no repository selected";
+  };
+  showSelection();
+  prTree.onDidChangeTreeData(showSelection);
+
   context.subscriptions.push(
-    vscode.window.createTreeView("prBuddy.pullRequests", {
-      treeDataProvider: prTree,
-    }),
+    prView,
     vscode.window.createTreeView("prBuddy.review", {
       treeDataProvider: reviewTree,
     }),
@@ -46,10 +60,15 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     diagnostics,
     vscode.commands.registerCommand("prBuddy.refresh", () => prTree.refresh()),
+    vscode.commands.registerCommand("prBuddy.selectOrg", () =>
+      prTree.selectOrg(),
+    ),
+    vscode.commands.registerCommand("prBuddy.selectRepo", () =>
+      prTree.selectRepo(),
+    ),
     vscode.commands.registerCommand("prBuddy.reloadReview", () =>
       reviewTree.reload(),
     ),
-    vscode.commands.registerCommand("prBuddy.collapseReview", collapseReview),
     vscode.commands.registerCommand("prBuddy.openPullRequest", openPullRequest),
     vscode.commands.registerCommand("prBuddy.runReview", () => review(false)),
     vscode.commands.registerCommand("prBuddy.rerunReview", () => review(true)),
@@ -63,7 +82,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("prBuddy.openTerminal", openTerminal),
     vscode.commands.registerCommand("prBuddy.resumeChat", resumeChat),
     vscode.commands.registerCommand("prBuddy.openFileDiff", openFileDiff),
-    vscode.commands.registerCommand("prBuddy.openFinding", openFinding),
     vscode.commands.registerCommand("prBuddy.openOnGitHub", openOnGitHub),
     vscode.commands.registerCommand(
       "prBuddy.openReviewMarkdown",
@@ -333,27 +351,6 @@ async function setupDependencies(prepared: Prepared): Promise<void> {
 }
 
 /**
- * Folds the reading groups away.
- *
- * The built-in collapseAll folds what is on screen, including the file nodes the
- * provider does not track. It is not enough on its own: the tree re-reads
- * `collapsibleState` on every refresh, so without the provider flag the groups
- * would spring back open the next time a review reloaded.
- */
-async function collapseReview(): Promise<void> {
-  reviewTree.collapse();
-  try {
-    await vscode.commands.executeCommand(
-      "workbench.actions.treeView.prBuddy.review.collapseAll",
-    );
-  } catch {
-    // The built-in id is derived from the view id and is not part of the public
-    // API. The provider flag has already folded the groups, so losing the extra
-    // fold of the file nodes is not worth surfacing as an error.
-  }
-}
-
-/**
  * Ends a review: deletes the worktree and returns the panel to its empty state.
  *
  * The binary refuses to delete a worktree holding the reviewer's own edits. That
@@ -530,26 +527,6 @@ async function openFileDiff(relPath: string, prNumber?: number): Promise<void> {
   }
 }
 
-async function openFinding(finding: Finding): Promise<void> {
-  const state = reviewTree.current();
-  if (!state || !finding?.location?.path) {
-    return;
-  }
-  const uri = vscode.Uri.file(
-    path.join(state.prepared.worktree, finding.location.path),
-  );
-  const line = Math.max(0, (finding.location.line ?? 1) - 1);
-  // Not a preview: a finding opened from the panel is somewhere the reviewer
-  // means to stay, and a preview tab would be replaced by the next click.
-  const editor = await vscode.window.showTextDocument(uri, {
-    preview: false,
-    viewColumn: vscode.ViewColumn.Active,
-  });
-  const range = new vscode.Range(line, 0, line, 0);
-  editor.selection = new vscode.Selection(range.start, range.start);
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-}
-
 async function openFirstFile(prepared: Prepared): Promise<void> {
   // A reading order from a superseded review would open the wrong file first,
   // so it is only trusted while the review is current.
@@ -557,8 +534,9 @@ async function openFirstFile(prepared: Prepared): Promise<void> {
     prepared.review_status === "complete"
       ? readStoredReview(prepared.review_json)
       : undefined;
-  const first =
-    stored?.reading_guide?.[0]?.paths?.[0] ?? prepared.changed_files?.[0];
+  // Shared with the panel deliberately: the file opened first must be the file
+  // at the top of the list, or the reviewer starts somewhere the tree denies.
+  const [first] = orderedFiles(prepared, stored);
   if (first) {
     await openFileDiff(first);
   }
