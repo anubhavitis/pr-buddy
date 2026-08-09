@@ -19,6 +19,30 @@ pr-buddy -open=false 1234         # print results without opening VS Code
 
 Re-running for an unchanged PR reuses the cached review and invokes no model.
 
+Subcommands emit JSON for programmatic callers such as the VS Code extension:
+`list`, `prepare`, `review`, `remove`, `deps`, `progress`, `checks`.
+
+## VS Code extension
+
+`extension/` adds three panels:
+
+- **Pull Requests** — pick an org and repo from the title bar, then a PR from a
+  flat list showing `author → target branch`.
+- **Review** — the PR's changed files in the order the review says to read them,
+  each markable as read. Findings appear as diagnostics in the Problems panel and
+  as prose in the rendered review, not as tree rows.
+- **CI Checks** — check runs for the head commit, failures first, with a re-run
+  action on failed workflow runs.
+
+```sh
+cd extension
+npm install
+npx @vscode/vsce package --no-dependencies
+code --install-extension pr-buddy-0.1.0.vsix --force
+```
+
+Set `prBuddy.binaryPath` if `pr-buddy` is not on your `PATH`.
+
 ## Why
 
 To test one hypothesis: that this reduces human review time by at least 25% without
@@ -30,9 +54,15 @@ and the stop conditions that would end the project.
 PR code is treated as untrusted, including internal PRs.
 
 - No package installs, hooks, tasks, generators, or repository scripts ever run.
-- No secrets or dependency directories are copied into review worktrees.
-- The review runs without write or execution access.
+- No secrets are copied into review worktrees. Your own already-installed
+  dependencies are copied in so imports resolve; nothing is installed or built to
+  produce them, and no manifest from the PR is honoured.
+- The review runs with read-only tools and no execution access.
 - Findings stay local. GitHub comments are always written by you, deliberately.
+
+The one exception to reading only: re-running a workflow's failed CI jobs, which
+you confirm each time. It cannot comment, approve, or merge, and no review output
+ever leaves your machine.
 
 ## Design
 
@@ -54,6 +84,7 @@ Go 1.24+, `git`, `gh` (authenticated), and the `claude` CLI.
 ## Development
 
 ```sh
-go test ./...
+go test -race -count=1 ./...
 go vet ./...
+cd extension && npx tsc -p ./ --noEmit
 ```
