@@ -252,7 +252,11 @@ function prItem(node: PullRequestNode): vscode.TreeItem {
     `PR-${pr.number}`,
     vscode.TreeItemCollapsibleState.None,
   );
-  item.description = `${pr.author} · ${pr.changed_files}f +${pr.additions}/-${pr.deletions}`;
+  // Who wrote it and where it lands. Size counts were the obvious thing to put
+  // here and the wrong one: they say how much work the review is, not whether
+  // it is work worth doing now, and a branch that merges somewhere unexpected
+  // is the single thing a reviewer most needs to notice before reading a line.
+  item.description = `${pr.author} → ${pr.base_ref}`;
   item.tooltip = new vscode.MarkdownString(
     [
       `**#${pr.number} ${pr.title}**`,
