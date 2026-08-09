@@ -66,6 +66,11 @@
         "icon": "$(debug-restart)"
       },
       {
+        "command": "prBuddy.endReview",
+        "title": "pr-buddy: End Review (delete worktree)",
+        "icon": "$(close)"
+      },
+      {
         "command": "prBuddy.openTerminal",
         "title": "pr-buddy: Open Terminal In Worktree",
         "icon": "$(terminal)"
@@ -87,6 +92,11 @@
         "command": "prBuddy.reloadReview",
         "title": "pr-buddy: Reload Review From Disk",
         "icon": "$(sync)"
+      },
+      {
+        "command": "prBuddy.collapseReview",
+        "title": "pr-buddy: Collapse Review",
+        "icon": "$(collapse-all)"
       },
       {
         "command": "prBuddy.openFileDiff",
@@ -115,6 +125,11 @@
           "command": "prBuddy.openTerminal",
           "when": "view == prBuddy.review",
           "group": "navigation@2"
+        },
+        {
+          "command": "prBuddy.collapseReview",
+          "when": "view == prBuddy.review",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -125,6 +140,11 @@
         },
         {
           "command": "prBuddy.rerunReview",
+          "when": "view == prBuddy.review && viewItem == reviewSummary",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.endReview",
           "when": "view == prBuddy.review && viewItem == reviewSummary",
           "group": "inline"
         }

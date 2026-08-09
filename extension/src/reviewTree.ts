@@ -66,12 +66,28 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
 
   private state?: ReviewState;
 
+  /**
+   * Whether the reader has folded the reading groups away. VS Code re-reads
+   * `collapsibleState` on every refresh, so a hardcoded `Expanded` would undo
+   * the collapse the moment a review reloads — the flag is what makes it stick.
+   */
+  private collapsed = false;
+
   current(): ReviewState | undefined {
     return this.state;
   }
 
   set(state: ReviewState | undefined): void {
+    if (state?.prepared.pr_number !== this.state?.prepared.pr_number) {
+      this.collapsed = false;
+    }
     this.state = state;
+    this.changed.fire(undefined);
+  }
+
+  /** Folds the reading groups; a new pull request starts expanded again. */
+  collapse(): void {
+    this.collapsed = true;
     this.changed.fire(undefined);
   }
 
@@ -104,7 +120,7 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
       case "summary":
         return summaryItem(node);
       case "group":
-        return groupItem(node);
+        return groupItem(node, this.collapsed);
       case "file":
         return fileItem(node, this.state);
       case "finding":
@@ -238,10 +254,12 @@ function summaryItem(node: SummaryNode): vscode.TreeItem {
   return item;
 }
 
-function groupItem(node: GroupNode): vscode.TreeItem {
+function groupItem(node: GroupNode, collapsed: boolean): vscode.TreeItem {
   const item = new vscode.TreeItem(
     `${node.index + 1}. ${node.group.name}`,
-    vscode.TreeItemCollapsibleState.Expanded,
+    collapsed
+      ? vscode.TreeItemCollapsibleState.Collapsed
+      : vscode.TreeItemCollapsibleState.Expanded,
   );
   item.description = node.group.summary;
   item.tooltip = node.group.summary;

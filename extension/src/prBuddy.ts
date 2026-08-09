@@ -98,6 +98,13 @@ export interface StoredReview {
   provenance: { repo: string; pr_number: number; head_sha: string };
 }
 
+export interface RemoveResult {
+  repo: string;
+  pr_number: number;
+  removed: boolean;
+  worktree: string;
+}
+
 export class PrBuddyError extends Error {
   constructor(
     message: string,
@@ -223,4 +230,22 @@ export async function review(
   }
   args.push(String(prNumber));
   return run<ReviewResult>(args, token, 20 * 60_000);
+}
+
+/**
+ * Deletes the worktree and the cached review.
+ *
+ * The binary refuses when the worktree holds the reviewer's own edits, and that
+ * refusal arrives here as an error rather than a result.
+ */
+export async function remove(
+  repo: string,
+  prNumber: number,
+  token?: vscode.CancellationToken,
+): Promise<RemoveResult> {
+  return run<RemoveResult>(
+    ["remove", "-repo", repo, String(prNumber)],
+    token,
+    60_000,
+  );
 }

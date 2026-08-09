@@ -44,6 +44,8 @@ func run() error {
 			return cmdPrepare(os.Args[2:])
 		case "review":
 			return cmdReviewJSON(os.Args[2:])
+		case "remove":
+			return cmdRemove(os.Args[2:])
 		}
 	}
 

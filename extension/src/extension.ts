@@ -6,6 +6,7 @@ import {
   Prepared,
   PrBuddyError,
   prepare,
+  remove as removeWorktree,
   review as runReview,
 } from "./prBuddy";
 import { BASE_SCHEME, BaseContentProvider, baseUri } from "./baseContent";
@@ -46,9 +47,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("prBuddy.reloadReview", () =>
       reviewTree.reload(),
     ),
+    vscode.commands.registerCommand("prBuddy.collapseReview", collapseReview),
     vscode.commands.registerCommand("prBuddy.openPullRequest", openPullRequest),
     vscode.commands.registerCommand("prBuddy.runReview", () => review(false)),
     vscode.commands.registerCommand("prBuddy.rerunReview", () => review(true)),
+    vscode.commands.registerCommand("prBuddy.endReview", endReview),
     vscode.commands.registerCommand("prBuddy.openTerminal", openTerminal),
     vscode.commands.registerCommand("prBuddy.resumeChat", resumeChat),
     vscode.commands.registerCommand("prBuddy.openFileDiff", openFileDiff),
@@ -202,6 +205,102 @@ async function review(force: boolean): Promise<void> {
       }
     },
   );
+}
+
+/**
+ * Folds the reading groups away.
+ *
+ * The built-in collapseAll folds what is on screen, including the file nodes the
+ * provider does not track. It is not enough on its own: the tree re-reads
+ * `collapsibleState` on every refresh, so without the provider flag the groups
+ * would spring back open the next time a review reloaded.
+ */
+async function collapseReview(): Promise<void> {
+  reviewTree.collapse();
+  try {
+    await vscode.commands.executeCommand(
+      "workbench.actions.treeView.prBuddy.review.collapseAll",
+    );
+  } catch {
+    // The built-in id is derived from the view id and is not part of the public
+    // API. The provider flag has already folded the groups, so losing the extra
+    // fold of the file nodes is not worth surfacing as an error.
+  }
+}
+
+/**
+ * Ends a review: deletes the worktree and returns the panel to its empty state.
+ *
+ * The binary refuses to delete a worktree holding the reviewer's own edits. That
+ * refusal must leave everything on screen intact, or the reviewer loses sight of
+ * the work the refusal exists to protect.
+ */
+async function endReview(): Promise<void> {
+  const state = reviewTree.current();
+  if (!state) {
+    vscode.window.showInformationMessage("Open a pull request first.");
+    return;
+  }
+  const { repo, pr_number: prNumber, worktree } = state.prepared;
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `End the review of ${repo}#${prNumber}?`,
+    {
+      modal: true,
+      detail: `This deletes the worktree at ${worktree} and its cached review.`,
+    },
+    "Delete Worktree",
+  );
+  if (confirmed !== "Delete Worktree") {
+    return;
+  }
+
+  try {
+    await removeWorktree(repo, prNumber);
+  } catch (err) {
+    showError(err);
+    return;
+  }
+
+  diagnostics.clear();
+  terminal?.dispose();
+  terminal = undefined;
+  artifactWatcher?.dispose();
+  artifactWatcher = undefined;
+  reviewTree.set(undefined);
+  await closeWorktreeTabs(worktree);
+}
+
+/**
+ * Closes editors showing the deleted checkout. A tab left open on a removed file
+ * would keep offering to save it back into a worktree git no longer knows about.
+ */
+async function closeWorktreeTabs(worktree: string): Promise<void> {
+  const prefix = worktree.endsWith(path.sep) ? worktree : worktree + path.sep;
+  const doomed = vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter((tab) =>
+      uris(tab).some(
+        (uri) =>
+          uri.scheme === BASE_SCHEME ||
+          (uri.scheme === "file" && uri.fsPath.startsWith(prefix)),
+      ),
+    );
+  if (doomed.length) {
+    await vscode.window.tabGroups.close(doomed, true);
+  }
+}
+
+/** Both sides of a diff tab count, so a diff closes with either one matching. */
+function uris(tab: vscode.Tab): vscode.Uri[] {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText) {
+    return [input.uri];
+  }
+  if (input instanceof vscode.TabInputTextDiff) {
+    return [input.original, input.modified];
+  }
+  return [];
 }
 
 /**

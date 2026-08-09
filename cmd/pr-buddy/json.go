@@ -197,6 +197,71 @@ func cmdPrepare(args []string) error {
 	return emit(res)
 }
 
+// removeResult reports what a remove took away.
+type removeResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	Removed  bool   `json:"removed"`
+	Worktree string `json:"worktree"`
+}
+
+// cmdRemove ends a review: it deletes the worktree and the cached review.
+//
+// GitHub is not consulted, so a pull request that has since been merged, closed,
+// or deleted can still be cleaned up.
+func cmdRemove(args []string) error {
+	fs := flag.NewFlagSet("remove", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy remove [-repo <owner/name>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	client := gh.New(r)
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
+	if err != nil {
+		return err
+	}
+
+	wm := worktree.New(r, *root)
+	path := wm.Path(slug, number)
+	if err := wm.Remove(ctx, src, slug, number); err != nil {
+		if errors.Is(err, worktree.ErrDirtyWorktree) {
+			return fmt.Errorf("%w\n  the worktree holds changes that are not mine; resolve them or remove it manually", err)
+		}
+		return err
+	}
+
+	// Only once the worktree is gone: a refused removal must leave the review
+	// that describes it intact.
+	_ = os.RemoveAll(reviewDir(*root, slug, number))
+
+	return emit(removeResult{
+		Repo: slug, PRNumber: number,
+		Removed: true, Worktree: path,
+	})
+}
+
 // reviewResult reports the outcome of a review run.
 type reviewResult struct {
 	Repo        string             `json:"repo"`
