@@ -177,8 +177,11 @@ function relativeAge(timestamp: string): string {
 
 function prItem(node: PullRequestNode): vscode.TreeItem {
   const { pr } = node;
+  // The number alone. A list of long titles truncates to near-identical
+  // prefixes, so the text that survives is the least distinguishing part; the
+  // title stays a hover away.
   const item = new vscode.TreeItem(
-    `#${pr.number} ${pr.title}`,
+    `PR-${pr.number}`,
     vscode.TreeItemCollapsibleState.None,
   );
   item.description = `${pr.author} · ${pr.changed_files}f +${pr.additions}/-${pr.deletions}`;

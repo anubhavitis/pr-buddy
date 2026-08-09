@@ -98,6 +98,32 @@ export interface StoredReview {
   provenance: { repo: string; pr_number: number; head_sha: string };
 }
 
+export interface RemoveResult {
+  repo: string;
+  pr_number: number;
+  removed: boolean;
+  worktree: string;
+}
+
+export interface ProgressResult {
+  repo: string;
+  pr_number: number;
+  /** Paths still marked reviewed at their current content. */
+  reviewed: string[];
+}
+
+export interface DepsResult {
+  repo: string;
+  pr_number: number;
+  worktree: string;
+  cloned: boolean;
+  already_present: boolean;
+  /** The cloned tree came from a different lockfile than this pull request's. */
+  lockfile_differs: boolean;
+  paths?: string[];
+  source?: string;
+}
+
 export class PrBuddyError extends Error {
   constructor(
     message: string,
@@ -223,4 +249,67 @@ export async function review(
   }
   args.push(String(prNumber));
   return run<ReviewResult>(args, token, 20 * 60_000);
+}
+
+/**
+ * Deletes the worktree and the cached review.
+ *
+ * The binary refuses when the worktree holds the reviewer's own edits, and that
+ * refusal arrives here as an error rather than a result.
+ */
+export async function remove(
+  repo: string,
+  prNumber: number,
+  token?: vscode.CancellationToken,
+): Promise<RemoveResult> {
+  return run<RemoveResult>(
+    ["remove", "-repo", repo, String(prNumber)],
+    token,
+    60_000,
+  );
+}
+
+/**
+ * Reads or updates which files the reviewer has finished with.
+ *
+ * Marks are tied to file content, so the returned list is only those still
+ * valid at the current head — a file the author has changed since it was
+ * reviewed comes back unmarked.
+ */
+export async function progress(
+  repo: string,
+  prNumber: number,
+  change?: { mark?: string; unmark?: string },
+  token?: vscode.CancellationToken,
+): Promise<ProgressResult> {
+  const args = ["progress", "-repo", repo];
+  if (change?.mark) {
+    args.push("-mark", change.mark);
+  }
+  if (change?.unmark) {
+    args.push("-unmark", change.unmark);
+  }
+  args.push(String(prNumber));
+  return run<ProgressResult>(args, token, 60_000);
+}
+
+/**
+ * Clones the reviewer's installed dependencies into the worktree so imports
+ * resolve and the editor can navigate.
+ *
+ * Slow enough — a minute on a large monorepo — that callers run it in the
+ * background rather than making the reviewer wait to read the diff.
+ */
+export async function setupDeps(
+  repo: string,
+  prNumber: number,
+  source: string,
+  token?: vscode.CancellationToken,
+): Promise<DepsResult> {
+  const args = ["deps", "-repo", repo];
+  if (source) {
+    args.push("-source", source);
+  }
+  args.push(String(prNumber));
+  return run<DepsResult>(args, token, 15 * 60_000);
 }

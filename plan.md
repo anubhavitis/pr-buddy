@@ -12,7 +12,15 @@ Prove that a personal, AI-assisted PR review workflow reduces reviewer time with
 - Reading order is a guided tour, not a reordered VS Code diff.
 - Claude Code remains the first model/runtime. Local-model routing is deferred.
 - No VS Code extension is built during the pilot.
-- No secrets or dependency directories are copied into review worktrees.
+- No secrets are copied into review worktrees.
+- The reviewer's own installed dependencies and built workspace output are
+  copied in, so imports resolve and the editor can navigate. Corrected on
+  2026-08-09; the original assumption forbade this outright. Measured on a real
+  monorepo, its absence produced 13,267 TypeScript errors against 9 with it,
+  which made navigation — the reason the editor integration exists — unusable.
+  The copy is copy-on-write and one-directional: nothing from the pull request
+  is installed, built, or executed, and a write in the worktree cannot reach the
+  reviewer's checkout.
 - No package installation or repository scripts run automatically.
 - The reviewer writes all PR comments in the GitHub web UI and does not use the
   VS Code GitHub Pull Requests extension. Corrected on 2026-08-03; the original
@@ -41,7 +49,9 @@ If any assumption is wrong, resolve it before implementation because it changes 
 - Delta re-review.
 - Automatic pre-review triggers.
 - True diff reordering.
-- Dependency setup and test execution.
+- Test execution, and any build or install run against pull request code.
+  (Copying the reviewer's already-installed dependencies is now included; see
+  the working assumptions. Running anything to produce them is not.)
 - Local models and routing proxies.
 - Team rollout and GitHub Actions.
 - Custom VS Code extension.

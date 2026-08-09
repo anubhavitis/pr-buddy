@@ -91,8 +91,17 @@ built around, and it is easy to break by accident:
   own `.claude/settings.json` and grant `Bash` back to itself.
 - `--permission-mode dontAsk` makes an unattended run fail rather than hang. Never
   add `--dangerously-skip-permissions` or `bypassPermissions`.
-- Nothing copies `.env`, `.npmrc`, credentials, or dependency directories into a
-  worktree.
+- Nothing copies `.env`, `.npmrc`, or credentials into a worktree.
+- `internal/deps` copies the *reviewer's own* installed dependencies and built
+  workspace output into a worktree, so imports resolve and an editor can
+  navigate. This is a deliberate narrowing of an earlier blanket rule, and the
+  distinction it rests on is: those directories are the reviewer's artifacts,
+  never the pull request's. Nothing is installed, built, or executed to obtain
+  them, no package manager is invoked, and no manifest from the pull request is
+  honoured. The copy is copy-on-write (`cp -c`) rather than a symlink
+  *precisely* so that anything writing in the worktree — a stray build, a test
+  run — cannot reach back into the reviewer's checkout. Replacing it with a
+  symlink would silently reintroduce that path.
 - Findings stay local. GitHub comments are always authored by the human.
 
 Tests in `worktree` and `runner` assert these properties directly. If one starts

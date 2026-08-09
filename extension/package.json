@@ -66,6 +66,11 @@
         "icon": "$(debug-restart)"
       },
       {
+        "command": "prBuddy.endReview",
+        "title": "pr-buddy: End Review (delete worktree)",
+        "icon": "$(close)"
+      },
+      {
         "command": "prBuddy.openTerminal",
         "title": "pr-buddy: Open Terminal In Worktree",
         "icon": "$(terminal)"
@@ -89,17 +94,40 @@
         "icon": "$(sync)"
       },
       {
+        "command": "prBuddy.collapseReview",
+        "title": "pr-buddy: Collapse Review",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "prBuddy.markReviewed",
+        "title": "pr-buddy: Mark File Reviewed",
+        "icon": "$(check)"
+      },
+      {
+        "command": "prBuddy.unmarkReviewed",
+        "title": "pr-buddy: Mark File Not Reviewed",
+        "icon": "$(check-all)"
+      },
+      {
         "command": "prBuddy.openFileDiff",
-        "title": "pr-buddy: Open File Diff",
-        "enablement": "false"
+        "title": "pr-buddy: Open File Diff"
       },
       {
         "command": "prBuddy.openFinding",
-        "title": "pr-buddy: Go To Finding",
-        "enablement": "false"
+        "title": "pr-buddy: Go To Finding"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "prBuddy.openFileDiff",
+          "when": "false"
+        },
+        {
+          "command": "prBuddy.openFinding",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "prBuddy.refresh",
@@ -115,6 +143,11 @@
           "command": "prBuddy.openTerminal",
           "when": "view == prBuddy.review",
           "group": "navigation@2"
+        },
+        {
+          "command": "prBuddy.collapseReview",
+          "when": "view == prBuddy.review",
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -126,6 +159,21 @@
         {
           "command": "prBuddy.rerunReview",
           "when": "view == prBuddy.review && viewItem == reviewSummary",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.endReview",
+          "when": "view == prBuddy.review && viewItem == reviewSummary",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.markReviewed",
+          "when": "view == prBuddy.review && viewItem == reviewFile",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.unmarkReviewed",
+          "when": "view == prBuddy.review && viewItem == reviewFileDone",
           "group": "inline"
         }
       ]
@@ -147,6 +195,19 @@
           "type": "boolean",
           "default": true,
           "description": "Start a review in the background when a pull request is opened."
+        },
+        "prBuddy.setupDependencies": {
+          "type": "boolean",
+          "default": true,
+          "description": "Copy your installed dependencies into the review worktree so imports resolve and go-to-definition works. Nothing from the pull request is installed or run; the copy is copy-on-write, so writing in the worktree cannot affect your own checkout."
+        },
+        "prBuddy.sourceCheckouts": {
+          "type": "object",
+          "default": {},
+          "description": "Where each repository is checked out locally, as owner/name -> absolute path. Dependencies are copied from here. Repositories with no entry are skipped.",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "prBuddy.repoLimit": {
           "type": "number",

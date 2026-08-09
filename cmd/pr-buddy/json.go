@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anubhavitis/pr-buddy/internal/artifact"
+	"github.com/anubhavitis/pr-buddy/internal/deps"
 	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
 	"github.com/anubhavitis/pr-buddy/internal/gh"
 	"github.com/anubhavitis/pr-buddy/internal/render"
@@ -197,17 +200,253 @@ func cmdPrepare(args []string) error {
 	return emit(res)
 }
 
+// depsResult reports what dependency setup did.
+type depsResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	Worktree string `json:"worktree"`
+	Cloned   bool   `json:"cloned"`
+	// AlreadyPresent reports that the worktree already had dependencies.
+	AlreadyPresent bool `json:"already_present"`
+	// LockfileDiffers warns that the cloned tree was resolved from a different
+	// lockfile than this pull request's, so resolved types may not be the ones
+	// it would build against.
+	LockfileDiffers bool     `json:"lockfile_differs"`
+	Paths           []string `json:"paths,omitempty"`
+	Source          string   `json:"source,omitempty"`
+}
+
+// cmdDeps clones the reviewer's installed dependencies into a pull request's
+// worktree, so imports resolve and the editor can navigate.
+//
+// This is a separate subcommand rather than part of prepare because it is by far
+// the slowest step: a checkout takes seconds and a dependency clone can take a
+// minute. Callers run it in the background while the diff is already readable.
+//
+// Nothing from the pull request is installed or executed; see internal/deps.
+func cmdDeps(args []string) error {
+	fs := flag.NewFlagSet("deps", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	source := fs.String("source", "", "checkout whose installed dependencies are cloned (defaults to the current directory)")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy deps [-repo <owner/name>] [-source <dir>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = gh.New(r).CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	src := *source
+	if src == "" {
+		src = cwd
+	}
+
+	path := worktree.New(r, *root).Path(slug, number)
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("no worktree for %s#%d; run prepare first", slug, number)
+	}
+
+	res, err := deps.New(r, src).Prepare(ctx, path)
+	if err != nil {
+		return err
+	}
+	return emit(depsResult{
+		Repo: slug, PRNumber: number, Worktree: path,
+		Cloned: res.Cloned, AlreadyPresent: res.AlreadyPresent,
+		LockfileDiffers: res.LockfileDiffers, Paths: res.Paths,
+		Source: src,
+	})
+}
+
+// progressResult reports which files carry a valid reviewed mark.
+type progressResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	// Reviewed lists the repository-relative paths still marked reviewed at
+	// their current content.
+	Reviewed []string `json:"reviewed"`
+}
+
+// cmdProgress reads or updates which files the reviewer has finished with.
+//
+// A mark is tied to the file's blob, not just its path, so a file the author
+// changes after it was reviewed loses its mark while untouched files keep
+// theirs. Blobs are read from the worktree rather than GitHub: the checkout is
+// already local and already at the revision under review.
+func cmdProgress(args []string) error {
+	fs := flag.NewFlagSet("progress", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	mark := fs.String("mark", "", "mark this repository-relative path reviewed")
+	unmark := fs.String("unmark", "", "clear the mark on this path")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy progress [-repo <owner/name>] [-mark <path> | -unmark <path>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = gh.New(r).CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	worktreePath := worktree.New(r, *root).Path(slug, number)
+	artifactDir := reviewDir(*root, slug, number)
+
+	prog, err := artifact.ReadProgress(artifactDir)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case *mark != "":
+		blob, err := blobSHA(ctx, r, worktreePath, *mark)
+		if err != nil {
+			return err
+		}
+		prog.Mark(*mark, blob)
+	case *unmark != "":
+		prog.Unmark(*unmark)
+	}
+	if *mark != "" || *unmark != "" {
+		if err := artifact.WriteProgress(artifactDir, prog); err != nil {
+			return err
+		}
+	}
+
+	// Report only marks that still hold, so a caller never has to re-derive
+	// which ones a new push invalidated.
+	reviewed := []string{}
+	for path := range prog.Files {
+		blob, err := blobSHA(ctx, r, worktreePath, path)
+		if err != nil {
+			// A path that no longer exists at this head cannot be reviewed.
+			continue
+		}
+		if prog.Reviewed(path, blob) {
+			reviewed = append(reviewed, path)
+		}
+	}
+	sort.Strings(reviewed)
+
+	return emit(progressResult{Repo: slug, PRNumber: number, Reviewed: reviewed})
+}
+
+// blobSHA reports git's content hash for one path at the worktree's head.
+func blobSHA(ctx context.Context, r xexec.Runner, worktreePath, path string) (string, error) {
+	out, err := r.Run(ctx, worktreePath, "git", "rev-parse", "HEAD:"+path)
+	if err != nil {
+		return "", fmt.Errorf("reading the current content of %s: %w", path, err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// removeResult reports what a remove took away.
+type removeResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	Removed  bool   `json:"removed"`
+	Worktree string `json:"worktree"`
+}
+
+// cmdRemove ends a review: it deletes the worktree and the cached review.
+//
+// GitHub is not consulted, so a pull request that has since been merged, closed,
+// or deleted can still be cleaned up.
+func cmdRemove(args []string) error {
+	fs := flag.NewFlagSet("remove", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy remove [-repo <owner/name>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	client := gh.New(r)
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
+	if err != nil {
+		return err
+	}
+
+	wm := worktree.New(r, *root)
+	path := wm.Path(slug, number)
+	if err := wm.Remove(ctx, src, slug, number); err != nil {
+		if errors.Is(err, worktree.ErrDirtyWorktree) {
+			return fmt.Errorf("%w\n  the worktree holds changes that are not mine; resolve them or remove it manually", err)
+		}
+		return err
+	}
+
+	// Only once the worktree is gone: a refused removal must leave the review
+	// that describes it intact.
+	_ = os.RemoveAll(reviewDir(*root, slug, number))
+
+	return emit(removeResult{
+		Repo: slug, PRNumber: number,
+		Removed: true, Worktree: path,
+	})
+}
+
 // reviewResult reports the outcome of a review run.
 type reviewResult struct {
-	Repo        string             `json:"repo"`
-	PRNumber    int                `json:"pr_number"`
-	Status      string             `json:"status"`
-	FromCache   bool               `json:"from_cache"`
-	StaleReason string             `json:"stale_reason,omitempty"`
-	Worktree    string             `json:"worktree"`
-	ReviewJSON  string             `json:"review_json"`
-	ReviewMD    string             `json:"review_md"`
-	SessionID   string             `json:"session_id,omitempty"`
+	Repo        string `json:"repo"`
+	PRNumber    int    `json:"pr_number"`
+	Status      string `json:"status"`
+	FromCache   bool   `json:"from_cache"`
+	StaleReason string `json:"stale_reason,omitempty"`
+	Worktree    string `json:"worktree"`
+	ReviewJSON  string `json:"review_json"`
+	ReviewMD    string `json:"review_md"`
+	SessionID   string `json:"session_id,omitempty"`
 	// ResumeCommand is composed by the runner so that every caller offers the
 	// same recipe rather than each assembling its own.
 	ResumeCommand string             `json:"resume_command,omitempty"`

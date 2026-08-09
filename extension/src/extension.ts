@@ -6,7 +6,10 @@ import {
   Prepared,
   PrBuddyError,
   prepare,
+  remove as removeWorktree,
+  progress,
   review as runReview,
+  setupDeps,
 } from "./prBuddy";
 import { BASE_SCHEME, BaseContentProvider, baseUri } from "./baseContent";
 import { PullRequestNode, PullRequestTreeProvider } from "./pullRequestTree";
@@ -46,9 +49,17 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("prBuddy.reloadReview", () =>
       reviewTree.reload(),
     ),
+    vscode.commands.registerCommand("prBuddy.collapseReview", collapseReview),
     vscode.commands.registerCommand("prBuddy.openPullRequest", openPullRequest),
     vscode.commands.registerCommand("prBuddy.runReview", () => review(false)),
     vscode.commands.registerCommand("prBuddy.rerunReview", () => review(true)),
+    vscode.commands.registerCommand("prBuddy.endReview", endReview),
+    vscode.commands.registerCommand("prBuddy.markReviewed", (node) =>
+      toggleReviewed(node, false),
+    ),
+    vscode.commands.registerCommand("prBuddy.unmarkReviewed", (node) =>
+      toggleReviewed(node, true),
+    ),
     vscode.commands.registerCommand("prBuddy.openTerminal", openTerminal),
     vscode.commands.registerCommand("prBuddy.resumeChat", resumeChat),
     vscode.commands.registerCommand("prBuddy.openFileDiff", openFileDiff),
@@ -137,6 +148,11 @@ async function openPullRequest(node: PullRequestNode): Promise<void> {
   await openTerminal();
   await openFirstFile(prepared);
 
+  void loadProgress(prepared);
+  // Deliberately not awaited: the diff is already readable, and the dependency
+  // copy takes far longer than the checkout it follows.
+  void setupDependencies(prepared);
+
   const auto = vscode.workspace
     .getConfiguration("prBuddy")
     .get<boolean>("autoReviewOnOpen", true);
@@ -205,6 +221,214 @@ async function review(force: boolean): Promise<void> {
 }
 
 /**
+ * Marks a file read, or clears the mark.
+ *
+ * The binary owns the record because a mark is tied to the file's content, not
+ * its path: it must survive a push that touches other files and clear itself
+ * when the author changes this one. Deriving that here would duplicate a rule
+ * that belongs in one place.
+ */
+async function toggleReviewed(node: unknown, reviewed: boolean): Promise<void> {
+  const state = reviewTree.current();
+  const relPath = filePathOf(node);
+  if (!state || !relPath) {
+    return;
+  }
+  try {
+    const result = await progress(
+      state.prepared.repo,
+      state.prepared.pr_number,
+      reviewed ? { unmark: relPath } : { mark: relPath },
+    );
+    const current = reviewTree.current();
+    if (!current || current.prepared.pr_number !== state.prepared.pr_number) {
+      return;
+    }
+    current.reviewed = new Set(result.reviewed);
+    reviewTree.set(current);
+  } catch (err) {
+    showError(err);
+  }
+}
+
+/** Reads the path out of a review-tree file node. */
+function filePathOf(node: unknown): string | undefined {
+  if (node && typeof node === "object" && "relPath" in node) {
+    const { relPath } = node as { relPath?: unknown };
+    return typeof relPath === "string" ? relPath : undefined;
+  }
+  return undefined;
+}
+
+/** Loads which files still carry a valid reviewed mark. */
+async function loadProgress(prepared: Prepared): Promise<void> {
+  try {
+    const result = await progress(prepared.repo, prepared.pr_number);
+    const current = reviewTree.current();
+    if (!current || current.prepared.pr_number !== prepared.pr_number) {
+      return;
+    }
+    current.reviewed = new Set(result.reviewed);
+    reviewTree.set(current);
+  } catch {
+    // Progress is an aid, not the review. A pull request with none yet, or a
+    // worktree that has gone missing, is not worth interrupting the reviewer
+    // over.
+  }
+}
+
+/**
+ * Copies the reviewer's installed dependencies into the worktree, so imports
+ * resolve and go-to-definition works.
+ *
+ * Runs in the background: a checkout takes seconds and this can take a minute,
+ * and the reviewer should be reading the diff throughout. Failure is reported in
+ * the panel rather than as an error dialog — the worktree is still readable
+ * without dependencies, just harder to navigate.
+ */
+async function setupDependencies(prepared: Prepared): Promise<void> {
+  const config = vscode.workspace.getConfiguration("prBuddy");
+  if (!config.get<boolean>("setupDependencies", true)) {
+    return;
+  }
+  const sources = config.get<Record<string, string>>("sourceCheckouts", {});
+  const source = sources[prepared.repo];
+  if (!source) {
+    return;
+  }
+
+  const prNumber = prepared.pr_number;
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Window,
+      title: `pr-buddy: setting up dependencies for #${prNumber}`,
+      cancellable: true,
+    },
+    async (_progress, token) => {
+      try {
+        const result = await setupDeps(prepared.repo, prNumber, source, token);
+        const current = reviewTree.current();
+        // The reviewer may have moved on while this ran.
+        if (!current || current.prepared.pr_number !== prNumber) {
+          return;
+        }
+        current.depsReady = result.cloned || result.already_present;
+        current.depsLockfileDiffers = result.lockfile_differs;
+        reviewTree.set(current);
+        if (result.cloned) {
+          vscode.window.setStatusBarMessage(
+            "pr-buddy: dependencies ready — imports now resolve",
+            5000,
+          );
+        }
+      } catch (err) {
+        const current = reviewTree.current();
+        if (current && current.prepared.pr_number === prNumber) {
+          current.depsError = err instanceof Error ? err.message : String(err);
+          reviewTree.set(current);
+        }
+      }
+    },
+  );
+}
+
+/**
+ * Folds the reading groups away.
+ *
+ * The built-in collapseAll folds what is on screen, including the file nodes the
+ * provider does not track. It is not enough on its own: the tree re-reads
+ * `collapsibleState` on every refresh, so without the provider flag the groups
+ * would spring back open the next time a review reloaded.
+ */
+async function collapseReview(): Promise<void> {
+  reviewTree.collapse();
+  try {
+    await vscode.commands.executeCommand(
+      "workbench.actions.treeView.prBuddy.review.collapseAll",
+    );
+  } catch {
+    // The built-in id is derived from the view id and is not part of the public
+    // API. The provider flag has already folded the groups, so losing the extra
+    // fold of the file nodes is not worth surfacing as an error.
+  }
+}
+
+/**
+ * Ends a review: deletes the worktree and returns the panel to its empty state.
+ *
+ * The binary refuses to delete a worktree holding the reviewer's own edits. That
+ * refusal must leave everything on screen intact, or the reviewer loses sight of
+ * the work the refusal exists to protect.
+ */
+async function endReview(): Promise<void> {
+  const state = reviewTree.current();
+  if (!state) {
+    vscode.window.showInformationMessage("Open a pull request first.");
+    return;
+  }
+  const { repo, pr_number: prNumber, worktree } = state.prepared;
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `End the review of ${repo}#${prNumber}?`,
+    {
+      modal: true,
+      detail: `This deletes the worktree at ${worktree} and its cached review.`,
+    },
+    "Delete Worktree",
+  );
+  if (confirmed !== "Delete Worktree") {
+    return;
+  }
+
+  try {
+    await removeWorktree(repo, prNumber);
+  } catch (err) {
+    showError(err);
+    return;
+  }
+
+  diagnostics.clear();
+  terminal?.dispose();
+  terminal = undefined;
+  artifactWatcher?.dispose();
+  artifactWatcher = undefined;
+  reviewTree.set(undefined);
+  await closeWorktreeTabs(worktree);
+}
+
+/**
+ * Closes editors showing the deleted checkout. A tab left open on a removed file
+ * would keep offering to save it back into a worktree git no longer knows about.
+ */
+async function closeWorktreeTabs(worktree: string): Promise<void> {
+  const prefix = worktree.endsWith(path.sep) ? worktree : worktree + path.sep;
+  const doomed = vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter((tab) =>
+      uris(tab).some(
+        (uri) =>
+          uri.scheme === BASE_SCHEME ||
+          (uri.scheme === "file" && uri.fsPath.startsWith(prefix)),
+      ),
+    );
+  if (doomed.length) {
+    await vscode.window.tabGroups.close(doomed, true);
+  }
+}
+
+/** Both sides of a diff tab count, so a diff closes with either one matching. */
+function uris(tab: vscode.Tab): vscode.Uri[] {
+  const input = tab.input;
+  if (input instanceof vscode.TabInputText) {
+    return [input.uri];
+  }
+  if (input instanceof vscode.TabInputTextDiff) {
+    return [input.original, input.modified];
+  }
+  return [];
+}
+
+/**
  * Opens a terminal already in the worktree, so any harness the reviewer wants
  * runs against the right checkout without a manual cd.
  */
@@ -261,9 +485,17 @@ function readSessionCommand(prepared: Prepared): string | undefined {
 }
 
 /** Shows the change as a side-by-side diff of base against head. */
-async function openFileDiff(relPath: string): Promise<void> {
+async function openFileDiff(relPath: string, prNumber?: number): Promise<void> {
   const state = reviewTree.current();
-  if (!state) {
+  // Guarded here rather than by a manifest `enablement`, which VS Code applies
+  // to every route into a command — including a tree row's own click handler,
+  // where it silently does nothing.
+  if (!state || typeof relPath !== "string" || !relPath) {
+    return;
+  }
+  // A row clicked just before the tree repainted belongs to the pull request
+  // that is gone, and its path would be joined to the wrong worktree.
+  if (prNumber !== undefined && prNumber !== state.prepared.pr_number) {
     return;
   }
   const { worktree, base_sha: baseSHA } = state.prepared;
@@ -278,7 +510,11 @@ async function openFileDiff(relPath: string): Promise<void> {
       `${path.basename(relPath)} (${baseSHA.slice(0, 8)} ↔ head)`,
       // Active, not Beside: reviewing walks through many files, and letting each
       // one open a fresh editor group buries the review under split panes.
-      { preview: true, viewColumn: vscode.ViewColumn.Active },
+      //
+      // preview is off deliberately. A preview diff is replaced only by another
+      // editor of the same kind, so walking a reading order left the first file
+      // pinned and every later click appearing to do nothing.
+      { preview: false, viewColumn: vscode.ViewColumn.Active },
     );
   } catch (err) {
     // Falling back to the head side keeps the file readable, but staying silent
@@ -288,7 +524,7 @@ async function openFileDiff(relPath: string): Promise<void> {
       `pr-buddy: showing ${path.basename(relPath)} without its base side (${message})`,
     );
     await vscode.window.showTextDocument(head, {
-      preview: true,
+      preview: false,
       viewColumn: vscode.ViewColumn.Active,
     });
   }
@@ -296,15 +532,17 @@ async function openFileDiff(relPath: string): Promise<void> {
 
 async function openFinding(finding: Finding): Promise<void> {
   const state = reviewTree.current();
-  if (!state) {
+  if (!state || !finding?.location?.path) {
     return;
   }
   const uri = vscode.Uri.file(
     path.join(state.prepared.worktree, finding.location.path),
   );
   const line = Math.max(0, (finding.location.line ?? 1) - 1);
+  // Not a preview: a finding opened from the panel is somewhere the reviewer
+  // means to stay, and a preview tab would be replaced by the next click.
   const editor = await vscode.window.showTextDocument(uri, {
-    preview: true,
+    preview: false,
     viewColumn: vscode.ViewColumn.Active,
   });
   const range = new vscode.Range(line, 0, line, 0);
