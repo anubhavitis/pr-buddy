@@ -7,6 +7,7 @@ import {
   PrBuddyError,
   prepare,
   remove as removeWorktree,
+  progress,
   review as runReview,
   setupDeps,
 } from "./prBuddy";
@@ -53,6 +54,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("prBuddy.runReview", () => review(false)),
     vscode.commands.registerCommand("prBuddy.rerunReview", () => review(true)),
     vscode.commands.registerCommand("prBuddy.endReview", endReview),
+    vscode.commands.registerCommand("prBuddy.markReviewed", (node) =>
+      toggleReviewed(node, false),
+    ),
+    vscode.commands.registerCommand("prBuddy.unmarkReviewed", (node) =>
+      toggleReviewed(node, true),
+    ),
     vscode.commands.registerCommand("prBuddy.openTerminal", openTerminal),
     vscode.commands.registerCommand("prBuddy.resumeChat", resumeChat),
     vscode.commands.registerCommand("prBuddy.openFileDiff", openFileDiff),
@@ -141,6 +148,7 @@ async function openPullRequest(node: PullRequestNode): Promise<void> {
   await openTerminal();
   await openFirstFile(prepared);
 
+  void loadProgress(prepared);
   // Deliberately not awaited: the diff is already readable, and the dependency
   // copy takes far longer than the checkout it follows.
   void setupDependencies(prepared);
@@ -210,6 +218,63 @@ async function review(force: boolean): Promise<void> {
       }
     },
   );
+}
+
+/**
+ * Marks a file read, or clears the mark.
+ *
+ * The binary owns the record because a mark is tied to the file's content, not
+ * its path: it must survive a push that touches other files and clear itself
+ * when the author changes this one. Deriving that here would duplicate a rule
+ * that belongs in one place.
+ */
+async function toggleReviewed(node: unknown, reviewed: boolean): Promise<void> {
+  const state = reviewTree.current();
+  const relPath = filePathOf(node);
+  if (!state || !relPath) {
+    return;
+  }
+  try {
+    const result = await progress(
+      state.prepared.repo,
+      state.prepared.pr_number,
+      reviewed ? { unmark: relPath } : { mark: relPath },
+    );
+    const current = reviewTree.current();
+    if (!current || current.prepared.pr_number !== state.prepared.pr_number) {
+      return;
+    }
+    current.reviewed = new Set(result.reviewed);
+    reviewTree.set(current);
+  } catch (err) {
+    showError(err);
+  }
+}
+
+/** Reads the path out of a review-tree file node. */
+function filePathOf(node: unknown): string | undefined {
+  if (node && typeof node === "object" && "relPath" in node) {
+    const { relPath } = node as { relPath?: unknown };
+    return typeof relPath === "string" ? relPath : undefined;
+  }
+  return undefined;
+}
+
+/** Loads which files still carry a valid reviewed mark. */
+async function loadProgress(prepared: Prepared): Promise<void> {
+  try {
+    const result = await progress(prepared.repo, prepared.pr_number);
+    const current = reviewTree.current();
+    if (!current || current.prepared.pr_number !== prepared.pr_number) {
+      return;
+    }
+    current.reviewed = new Set(result.reviewed);
+    reviewTree.set(current);
+  } catch {
+    // Progress is an aid, not the review. A pull request with none yet, or a
+    // worktree that has gone missing, is not worth interrupting the reviewer
+    // over.
+  }
 }
 
 /**
@@ -420,9 +485,17 @@ function readSessionCommand(prepared: Prepared): string | undefined {
 }
 
 /** Shows the change as a side-by-side diff of base against head. */
-async function openFileDiff(relPath: string): Promise<void> {
+async function openFileDiff(relPath: string, prNumber?: number): Promise<void> {
   const state = reviewTree.current();
-  if (!state) {
+  // Guarded here rather than by a manifest `enablement`, which VS Code applies
+  // to every route into a command — including a tree row's own click handler,
+  // where it silently does nothing.
+  if (!state || typeof relPath !== "string" || !relPath) {
+    return;
+  }
+  // A row clicked just before the tree repainted belongs to the pull request
+  // that is gone, and its path would be joined to the wrong worktree.
+  if (prNumber !== undefined && prNumber !== state.prepared.pr_number) {
     return;
   }
   const { worktree, base_sha: baseSHA } = state.prepared;
@@ -437,7 +510,11 @@ async function openFileDiff(relPath: string): Promise<void> {
       `${path.basename(relPath)} (${baseSHA.slice(0, 8)} ↔ head)`,
       // Active, not Beside: reviewing walks through many files, and letting each
       // one open a fresh editor group buries the review under split panes.
-      { preview: true, viewColumn: vscode.ViewColumn.Active },
+      //
+      // preview is off deliberately. A preview diff is replaced only by another
+      // editor of the same kind, so walking a reading order left the first file
+      // pinned and every later click appearing to do nothing.
+      { preview: false, viewColumn: vscode.ViewColumn.Active },
     );
   } catch (err) {
     // Falling back to the head side keeps the file readable, but staying silent
@@ -447,7 +524,7 @@ async function openFileDiff(relPath: string): Promise<void> {
       `pr-buddy: showing ${path.basename(relPath)} without its base side (${message})`,
     );
     await vscode.window.showTextDocument(head, {
-      preview: true,
+      preview: false,
       viewColumn: vscode.ViewColumn.Active,
     });
   }
@@ -455,15 +532,17 @@ async function openFileDiff(relPath: string): Promise<void> {
 
 async function openFinding(finding: Finding): Promise<void> {
   const state = reviewTree.current();
-  if (!state) {
+  if (!state || !finding?.location?.path) {
     return;
   }
   const uri = vscode.Uri.file(
     path.join(state.prepared.worktree, finding.location.path),
   );
   const line = Math.max(0, (finding.location.line ?? 1) - 1);
+  // Not a preview: a finding opened from the panel is somewhere the reviewer
+  // means to stay, and a preview tab would be replaced by the next click.
   const editor = await vscode.window.showTextDocument(uri, {
-    preview: true,
+    preview: false,
     viewColumn: vscode.ViewColumn.Active,
   });
   const range = new vscode.Range(line, 0, line, 0);

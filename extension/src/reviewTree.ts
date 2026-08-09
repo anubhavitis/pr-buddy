@@ -18,6 +18,8 @@ interface SummaryNode {
   kind: "summary";
   label: string;
   detail?: string;
+  /** The pull request title, which the label deliberately omits. */
+  tooltip?: string;
 }
 
 interface GroupNode {
@@ -41,6 +43,8 @@ interface MessageNode {
   kind: "message";
   text: string;
   icon?: string;
+  /** Full text, when the row shows a shortened form of it. */
+  tooltip?: string;
 }
 
 /** What the panel is currently showing. */
@@ -67,6 +71,11 @@ export interface ReviewState {
   depsLockfileDiffers?: boolean;
   /** Why dependency setup failed, when it did. */
   depsError?: string;
+  /**
+   * Repository-relative paths the reviewer has marked read, already filtered to
+   * those still valid at the current head.
+   */
+  reviewed?: Set<string>;
 }
 
 export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
@@ -172,16 +181,24 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
     const nodes: ReviewNode[] = [];
 
     const counts = countBySeverity(review?.findings ?? []);
+    const total = prepared.changed_files?.length ?? 0;
+    const done = state.reviewed?.size ?? 0;
+    // How far through the files the reviewer is answers the question the panel
+    // is open for; finding counts do not.
+    const read = total && done ? ` · ${done}/${total} read` : "";
     nodes.push({
       kind: "summary",
-      label: `#${prepared.pr_number} ${prepared.title}`,
+      // The number alone: the panel is narrow, and a title repeated on every
+      // row crowds out the detail that actually changes.
+      label: `PR-${prepared.pr_number}`,
+      tooltip: prepared.title,
       detail: running
         ? "reviewing…"
         : review
-          ? `${counts.error} error · ${counts.warning} warning · ${counts.info} info`
+          ? `${counts.error} error · ${counts.warning} warning · ${counts.info} info${read}`
           : staleReason
-            ? "out of date"
-            : "not reviewed",
+            ? `out of date${read}`
+            : `not reviewed${read}`,
     });
 
     // A superseded review is deliberately not shown, so say why rather than
@@ -212,7 +229,14 @@ export class ReviewTreeProvider implements vscode.TreeDataProvider<ReviewNode> {
     }
 
     if (review?.summary) {
-      nodes.push({ kind: "message", text: review.summary, icon: "note" });
+      // A tree row is one line: the rest of a paragraph is invisible anyway,
+      // and letting it run only pushes the reading order further down.
+      nodes.push({
+        kind: "message",
+        text: firstSentence(review.summary),
+        tooltip: review.summary,
+        icon: "note",
+      });
     }
 
     const guide = review?.reading_guide ?? [];
@@ -275,6 +299,7 @@ function summaryItem(node: SummaryNode): vscode.TreeItem {
     vscode.TreeItemCollapsibleState.None,
   );
   item.description = node.detail;
+  item.tooltip = node.tooltip;
   item.iconPath = new vscode.ThemeIcon("git-pull-request");
   item.contextValue = "reviewSummary";
   return item;
@@ -302,18 +327,33 @@ function fileItem(node: FileNode, state?: ReviewState): vscode.TreeItem {
       ? vscode.TreeItemCollapsibleState.Collapsed
       : vscode.TreeItemCollapsibleState.None,
   );
-  item.description = path.dirname(node.relPath);
-  item.tooltip = node.relPath;
+  const reviewed = state?.reviewed?.has(node.relPath) ?? false;
+  item.description = reviewed
+    ? `✓ ${path.dirname(node.relPath)}`
+    : path.dirname(node.relPath);
+  item.tooltip = reviewed
+    ? `${node.relPath}\n\nMarked reviewed. The mark clears by itself if the author changes this file.`
+    : node.relPath;
   item.resourceUri = state
     ? vscode.Uri.file(path.join(state.prepared.worktree, node.relPath))
     : undefined;
-  item.iconPath = worst ? severityIcon(worst) : vscode.ThemeIcon.File;
-  item.contextValue = "reviewFile";
+  // A finding outranks the check: a file with an unresolved error is worth
+  // seeing as such even once the reviewer has read it.
+  item.iconPath = worst
+    ? severityIcon(worst)
+    : reviewed
+      ? new vscode.ThemeIcon("check", new vscode.ThemeColor("charts.green"))
+      : vscode.ThemeIcon.File;
+  // Distinct context values let the menu offer mark or unmark, never both.
+  item.contextValue = reviewed ? "reviewFileDone" : "reviewFile";
   if (state) {
+    // The pull request travels with the path: a row rendered for one pull
+    // request can still be clicked in the instant before the tree repaints
+    // after a switch, and the handler has no other way to notice.
     item.command = {
       command: "prBuddy.openFileDiff",
       title: "Open Diff",
-      arguments: [node.relPath],
+      arguments: [node.relPath, state.prepared.pr_number],
     };
   }
   return item;
@@ -354,8 +394,21 @@ function messageItem(node: MessageNode): vscode.TreeItem {
     vscode.TreeItemCollapsibleState.None,
   );
   item.iconPath = new vscode.ThemeIcon(node.icon ?? "info");
-  item.tooltip = node.text;
+  item.tooltip = node.tooltip ?? node.text;
   return item;
+}
+
+/**
+ * The first sentence of a summary, bounded so it still fits a tree row.
+ *
+ * Sentence-first rather than a hard character cut: a summary's opening sentence
+ * says what the change does, which is the part worth seeing without hovering.
+ */
+function firstSentence(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  const end = trimmed.search(/[.!?](\s|$)/);
+  const sentence = end > 0 ? trimmed.slice(0, end + 1) : trimmed;
+  return sentence.length > 100 ? `${sentence.slice(0, 99)}…` : sentence;
 }
 
 function worstSeverity(findings: Finding[]): Finding["severity"] | undefined {

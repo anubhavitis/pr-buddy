@@ -105,6 +105,13 @@ export interface RemoveResult {
   worktree: string;
 }
 
+export interface ProgressResult {
+  repo: string;
+  pr_number: number;
+  /** Paths still marked reviewed at their current content. */
+  reviewed: string[];
+}
+
 export interface DepsResult {
   repo: string;
   pr_number: number;
@@ -260,6 +267,30 @@ export async function remove(
     token,
     60_000,
   );
+}
+
+/**
+ * Reads or updates which files the reviewer has finished with.
+ *
+ * Marks are tied to file content, so the returned list is only those still
+ * valid at the current head — a file the author has changed since it was
+ * reviewed comes back unmarked.
+ */
+export async function progress(
+  repo: string,
+  prNumber: number,
+  change?: { mark?: string; unmark?: string },
+  token?: vscode.CancellationToken,
+): Promise<ProgressResult> {
+  const args = ["progress", "-repo", repo];
+  if (change?.mark) {
+    args.push("-mark", change.mark);
+  }
+  if (change?.unmark) {
+    args.push("-unmark", change.unmark);
+  }
+  args.push(String(prNumber));
+  return run<ProgressResult>(args, token, 60_000);
 }
 
 /**

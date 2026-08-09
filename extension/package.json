@@ -99,17 +99,35 @@
         "icon": "$(collapse-all)"
       },
       {
+        "command": "prBuddy.markReviewed",
+        "title": "pr-buddy: Mark File Reviewed",
+        "icon": "$(check)"
+      },
+      {
+        "command": "prBuddy.unmarkReviewed",
+        "title": "pr-buddy: Mark File Not Reviewed",
+        "icon": "$(check-all)"
+      },
+      {
         "command": "prBuddy.openFileDiff",
-        "title": "pr-buddy: Open File Diff",
-        "enablement": "false"
+        "title": "pr-buddy: Open File Diff"
       },
       {
         "command": "prBuddy.openFinding",
-        "title": "pr-buddy: Go To Finding",
-        "enablement": "false"
+        "title": "pr-buddy: Go To Finding"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "prBuddy.openFileDiff",
+          "when": "false"
+        },
+        {
+          "command": "prBuddy.openFinding",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "prBuddy.refresh",
@@ -146,6 +164,16 @@
         {
           "command": "prBuddy.endReview",
           "when": "view == prBuddy.review && viewItem == reviewSummary",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.markReviewed",
+          "when": "view == prBuddy.review && viewItem == reviewFile",
+          "group": "inline"
+        },
+        {
+          "command": "prBuddy.unmarkReviewed",
+          "when": "view == prBuddy.review && viewItem == reviewFileDone",
           "group": "inline"
         }
       ]

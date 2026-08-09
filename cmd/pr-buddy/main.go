@@ -48,6 +48,8 @@ func run() error {
 			return cmdRemove(os.Args[2:])
 		case "deps":
 			return cmdDeps(os.Args[2:])
+		case "progress":
+			return cmdProgress(os.Args[2:])
 		}
 	}
 

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anubhavitis/pr-buddy/internal/artifact"
@@ -271,6 +273,102 @@ func cmdDeps(args []string) error {
 		LockfileDiffers: res.LockfileDiffers, Paths: res.Paths,
 		Source: src,
 	})
+}
+
+// progressResult reports which files carry a valid reviewed mark.
+type progressResult struct {
+	Repo     string `json:"repo"`
+	PRNumber int    `json:"pr_number"`
+	// Reviewed lists the repository-relative paths still marked reviewed at
+	// their current content.
+	Reviewed []string `json:"reviewed"`
+}
+
+// cmdProgress reads or updates which files the reviewer has finished with.
+//
+// A mark is tied to the file's blob, not just its path, so a file the author
+// changes after it was reviewed loses its mark while untouched files keep
+// theirs. Blobs are read from the worktree rather than GitHub: the checkout is
+// already local and already at the revision under review.
+func cmdProgress(args []string) error {
+	fs := flag.NewFlagSet("progress", flag.ExitOnError)
+	repo := fs.String("repo", "", "repository as owner/name (defaults to the current repository)")
+	root := fs.String("root", defaultRoot(), "directory holding review worktrees")
+	mark := fs.String("mark", "", "mark this repository-relative path reviewed")
+	unmark := fs.String("unmark", "", "clear the mark on this path")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "usage: pr-buddy progress [-repo <owner/name>] [-mark <path> | -unmark <path>] <pr-number>\n")
+	}
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	number, err := prNumber(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	r := xexec.Real{}
+	cwd, _ := os.Getwd()
+
+	slug := *repo
+	if slug == "" {
+		if slug, err = gh.New(r).CurrentRepo(ctx, cwd); err != nil {
+			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
+		}
+	}
+
+	worktreePath := worktree.New(r, *root).Path(slug, number)
+	artifactDir := reviewDir(*root, slug, number)
+
+	prog, err := artifact.ReadProgress(artifactDir)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case *mark != "":
+		blob, err := blobSHA(ctx, r, worktreePath, *mark)
+		if err != nil {
+			return err
+		}
+		prog.Mark(*mark, blob)
+	case *unmark != "":
+		prog.Unmark(*unmark)
+	}
+	if *mark != "" || *unmark != "" {
+		if err := artifact.WriteProgress(artifactDir, prog); err != nil {
+			return err
+		}
+	}
+
+	// Report only marks that still hold, so a caller never has to re-derive
+	// which ones a new push invalidated.
+	reviewed := []string{}
+	for path := range prog.Files {
+		blob, err := blobSHA(ctx, r, worktreePath, path)
+		if err != nil {
+			// A path that no longer exists at this head cannot be reviewed.
+			continue
+		}
+		if prog.Reviewed(path, blob) {
+			reviewed = append(reviewed, path)
+		}
+	}
+	sort.Strings(reviewed)
+
+	return emit(progressResult{Repo: slug, PRNumber: number, Reviewed: reviewed})
+}
+
+// blobSHA reports git's content hash for one path at the worktree's head.
+func blobSHA(ctx context.Context, r xexec.Runner, worktreePath, path string) (string, error) {
+	out, err := r.Run(ctx, worktreePath, "git", "rev-parse", "HEAD:"+path)
+	if err != nil {
+		return "", fmt.Errorf("reading the current content of %s: %w", path, err)
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // removeResult reports what a remove took away.
