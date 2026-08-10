@@ -1,6 +1,10 @@
 // Command pr-buddy prepares a pull request for review: it checks the PR head
 // out into an isolated worktree, runs a read-only review, and opens the result
 // beside the diff.
+//
+// This file and json.go are composition roots: they parse flags and format
+// output. The review workflow itself lives in internal/review, so the human and
+// programmatic forms cannot drift apart.
 package main
 
 import (
@@ -18,13 +22,11 @@ import (
 
 	"github.com/anubhavitis/pr-buddy/internal/artifact"
 	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
-	"github.com/anubhavitis/pr-buddy/internal/gh"
-	"github.com/anubhavitis/pr-buddy/internal/render"
-	"github.com/anubhavitis/pr-buddy/internal/runner"
+	"github.com/anubhavitis/pr-buddy/internal/review"
 	"github.com/anubhavitis/pr-buddy/internal/worktree"
 )
 
-const defaultModel = "claude-opus-5"
+const defaultModel = review.DefaultModel
 
 func main() {
 	if err := run(); err != nil {
@@ -70,79 +72,47 @@ func run() error {
 		usage()
 		return errors.New("expected exactly one pull request number")
 	}
-	number, err := strconv.Atoi(flag.Arg(0))
-	if err != nil || number <= 0 {
-		return fmt.Errorf("invalid pull request number %q", flag.Arg(0))
+	number, err := prNumber(flag.Arg(0))
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
 	r := xexec.Real{}
-	client := gh.New(r)
-
-	slug := *repo
-	if slug == "" {
-		slug, err = client.CurrentRepo(ctx, cwd)
-		if err != nil {
-			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
-		}
-	}
-
-	fmt.Printf("Reading %s#%d\n", slug, number)
-	pr, err := client.ViewPR(ctx, cwd, slug, number)
+	svc, err := newService(r, *root)
 	if err != nil {
 		return err
 	}
-	if pr.IsFork {
-		fmt.Printf("  fork: %s (treated as untrusted, as all PR code is)\n", pr.HeadRepo)
-	}
 
-	wm := worktree.New(r, *root)
-	wt, err := wm.Ensure(ctx, cwd, pr)
+	slug, err := svc.ResolveRepo(ctx, *repo)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Reading %s#%d\n", slug, number)
+
+	res, err := svc.Run(ctx, review.Options{
+		Repo: slug, Number: number,
+		Model: *model, Force: *force, Timeout: *timeout,
+	})
 	if err != nil {
 		if errors.Is(err, worktree.ErrDirtyWorktree) {
-			return fmt.Errorf("%w\n  the worktree holds changes that are not mine; resolve them or remove it manually", err)
+			return explainDirty(err)
 		}
-		return err
+		return fmt.Errorf("review failed: %w", err)
+	}
+
+	if res.PR.IsFork {
+		fmt.Printf("  fork: %s (treated as untrusted, as all PR code is)\n", res.PR.HeadRepo)
 	}
 	switch {
-	case wt.Created:
-		fmt.Printf("  worktree created at %s\n", wt.Path)
-	case wt.Refreshed:
-		fmt.Printf("  worktree refreshed to %s\n", short(wt.HeadSHA))
+	case res.Worktree.Created:
+		fmt.Printf("  worktree created at %s\n", res.Worktree.Path)
+	case res.Worktree.Refreshed:
+		fmt.Printf("  worktree refreshed to %s\n", short(res.Worktree.HeadSHA))
 	default:
-		fmt.Printf("  worktree current at %s\n", short(wt.HeadSHA))
-	}
-
-	prov := artifact.Provenance{
-		Repo:          pr.Repo,
-		PRNumber:      pr.Number,
-		BaseSHA:       pr.BaseSHA,
-		HeadSHA:       pr.HeadSHA,
-		RubricVersion: runner.RubricVersion,
-		Model:         *model,
-		SchemaVersion: artifact.Version,
-	}
-
-	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
-	if *force {
-		discardCachedReview(artifactDir)
-	}
-
-	run := &runner.Runner{
-		Reviewer: &runner.Claude{Runner: r, Model: *model},
-		Timeout:  *timeout,
-	}
-
-	res, err := run.Run(ctx, artifactDir, wt.Path, prov)
-	if err != nil {
-		return fmt.Errorf("review failed: %w", err)
+		fmt.Printf("  worktree current at %s\n", short(res.Worktree.HeadSHA))
 	}
 	if res.FromCache {
 		fmt.Println("  reusing cached review")
@@ -153,24 +123,36 @@ func run() error {
 		fmt.Println("  review complete")
 	}
 
-	reviewPath := filepath.Join(artifactDir, "review.md")
-	md := render.Markdown(res.Review, pr.Title)
-	if err := os.WriteFile(reviewPath, []byte(md), 0o644); err != nil {
-		return err
-	}
-
 	summarize(res.Review)
-	fmt.Printf("\n  worktree: %s\n  review:   %s\n", wt.Path, reviewPath)
-	if sess, err := artifact.ReadSession(artifactDir); err == nil && sess.ResumeCommand != "" {
-		fmt.Printf("  resume:   %s\n", sess.ResumeCommand)
+	fmt.Printf("\n  worktree: %s\n  review:   %s\n", res.Worktree.Path, res.ReviewMD())
+	if res.Session != nil && res.Session.ResumeCommand != "" {
+		fmt.Printf("  resume:   %s\n", res.Session.ResumeCommand)
 	}
 
 	if *open {
-		if _, err := r.Run(ctx, "", editorBin(), wt.Path, reviewPath); err != nil {
+		if _, err := r.Run(ctx, "", editorBin(), res.Worktree.Path, res.ReviewMD()); err != nil {
 			fmt.Fprintf(os.Stderr, "  (could not open the editor: %v)\n", err)
 		}
 	}
 	return nil
+}
+
+// explainDirty adds the recovery advice a refused worktree operation needs.
+// Both entry points report this the same way, so the wording lives here once.
+func explainDirty(err error) error {
+	if errors.Is(err, worktree.ErrDirtyWorktree) {
+		return fmt.Errorf("%w\n  the worktree holds changes that are not mine; resolve them or remove it manually", err)
+	}
+	return err
+}
+
+// newService builds the review workflow every command shares.
+func newService(r xexec.Runner, root string) (*review.Service, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	return review.New(r, root, cwd), nil
 }
 
 func summarize(r *artifact.Review) {
@@ -226,6 +208,14 @@ func defaultRoot() string {
 		return ".pr-buddy"
 	}
 	return filepath.Join(home, ".pr-buddy", "worktrees")
+}
+
+func prNumber(arg string) (int, error) {
+	n, err := strconv.Atoi(arg)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid pull request number %q", arg)
+	}
+	return n, nil
 }
 
 func short(sha string) string {

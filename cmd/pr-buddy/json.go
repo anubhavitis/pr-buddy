@@ -3,13 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,9 +14,7 @@ import (
 	"github.com/anubhavitis/pr-buddy/internal/deps"
 	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
 	"github.com/anubhavitis/pr-buddy/internal/gh"
-	"github.com/anubhavitis/pr-buddy/internal/render"
-	"github.com/anubhavitis/pr-buddy/internal/runner"
-	"github.com/anubhavitis/pr-buddy/internal/worktree"
+	"github.com/anubhavitis/pr-buddy/internal/review"
 )
 
 // The subcommands below exist for programmatic callers such as the VS Code
@@ -134,67 +129,30 @@ func cmdPrepare(args []string) error {
 	defer cancel()
 
 	r := xexec.Real{}
-	client := gh.New(r)
-	cwd, _ := os.Getwd()
-
-	slug := *repo
-	if slug == "" {
-		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
-			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
-		}
-	}
-
-	pr, err := client.ViewPR(ctx, cwd, slug, number)
+	svc, err := newService(r, *root)
 	if err != nil {
 		return err
 	}
 
-	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
+	p, err := svc.Prepare(ctx, review.Options{Repo: *repo, Number: number, Model: *model})
 	if err != nil {
 		return err
 	}
-
-	wt, err := worktree.New(r, *root).Ensure(ctx, src, pr)
-	if err != nil {
-		return err
-	}
-
-	prov := artifact.Provenance{
-		Repo: pr.Repo, PRNumber: pr.Number,
-		BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA,
-		RubricVersion: runner.RubricVersion, Model: *model,
-		SchemaVersion: artifact.Version,
-	}
-	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
+	pr := p.PR
 
 	res := prepareResult{
 		Repo: pr.Repo, PRNumber: pr.Number, Title: pr.Title,
 		State: string(pr.State), BaseRef: pr.BaseRef,
 		BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA, IsFork: pr.IsFork,
-		Worktree: wt.Path, ArtifactDir: artifactDir,
-		ReviewJSON: filepath.Join(artifactDir, "review.json"),
-		ReviewMD:   filepath.Join(artifactDir, "review.md"),
-		Created:    wt.Created, Refreshed: wt.Refreshed,
-		ReviewStatus: "absent",
+		Worktree: p.Worktree.Path, ArtifactDir: p.ArtifactDir,
+		ReviewJSON: p.ReviewJSON(), ReviewMD: p.ReviewMD(),
+		Created: p.Worktree.Created, Refreshed: p.Worktree.Refreshed,
+		ReviewStatus: p.Status, StaleReason: p.StaleReason,
 	}
 
 	// Changed files are best effort: the worktree is usable without them.
-	if files, err := client.ChangedFiles(ctx, pr.Repo, pr.Number); err == nil {
+	if files, err := gh.New(r).ChangedFiles(ctx, pr.Repo, pr.Number); err == nil {
 		res.ChangedFile = files
-	}
-
-	if stored, err := artifact.ReadReview(artifactDir); err == nil {
-		switch {
-		case stored.Usable(prov):
-			res.ReviewStatus = string(artifact.StatusComplete)
-		case stored.Status == artifact.StatusComplete:
-			res.ReviewStatus = "stale"
-			res.StaleReason = stored.StaleReason(prov)
-		default:
-			res.ReviewStatus = string(stored.Status)
-		}
-	} else if !errors.Is(err, artifact.ErrNotFound) {
-		res.ReviewStatus = "unreadable"
 	}
 
 	return emit(res)
@@ -244,21 +202,21 @@ func cmdDeps(args []string) error {
 	defer cancel()
 
 	r := xexec.Real{}
-	cwd, _ := os.Getwd()
-
-	slug := *repo
-	if slug == "" {
-		if slug, err = gh.New(r).CurrentRepo(ctx, cwd); err != nil {
-			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
-		}
+	svc, err := newService(r, *root)
+	if err != nil {
+		return err
+	}
+	slug, err := svc.ResolveRepo(ctx, *repo)
+	if err != nil {
+		return err
 	}
 
 	src := *source
 	if src == "" {
-		src = cwd
+		src = svc.Cwd
 	}
 
-	path := worktree.New(r, *root).Path(slug, number)
+	path := svc.WorktreePath(slug, number)
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("no worktree for %s#%d; run prepare first", slug, number)
 	}
@@ -311,17 +269,17 @@ func cmdProgress(args []string) error {
 	defer cancel()
 
 	r := xexec.Real{}
-	cwd, _ := os.Getwd()
-
-	slug := *repo
-	if slug == "" {
-		if slug, err = gh.New(r).CurrentRepo(ctx, cwd); err != nil {
-			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
-		}
+	svc, err := newService(r, *root)
+	if err != nil {
+		return err
+	}
+	slug, err := svc.ResolveRepo(ctx, *repo)
+	if err != nil {
+		return err
 	}
 
-	worktreePath := worktree.New(r, *root).Path(slug, number)
-	artifactDir := reviewDir(*root, slug, number)
+	worktreePath := svc.WorktreePath(slug, number)
+	artifactDir := svc.ArtifactDir(slug, number)
 
 	prog, err := artifact.ReadProgress(artifactDir)
 	if err != nil {
@@ -398,17 +356,17 @@ func cmdChecks(args []string) error {
 	defer cancel()
 
 	r := xexec.Real{}
-	cwd, _ := os.Getwd()
 	client := gh.New(r)
-
-	slug := *repo
-	if slug == "" {
-		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
-			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
-		}
+	svc, err := newService(r, defaultRoot())
+	if err != nil {
+		return err
+	}
+	slug, err := svc.ResolveRepo(ctx, *repo)
+	if err != nil {
+		return err
 	}
 
-	pr, err := client.ViewPR(ctx, cwd, slug, number)
+	pr, err := client.ViewPR(ctx, svc.Cwd, slug, number)
 	if err != nil {
 		return err
 	}
@@ -474,34 +432,19 @@ func cmdRemove(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	r := xexec.Real{}
-	client := gh.New(r)
-	cwd, _ := os.Getwd()
-
-	slug := *repo
-	if slug == "" {
-		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
-			return fmt.Errorf("determining current repository (use -repo owner/name): %w", err)
-		}
+	svc, err := newService(xexec.Real{}, *root)
+	if err != nil {
+		return err
 	}
-
-	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
+	slug, err := svc.ResolveRepo(ctx, *repo)
 	if err != nil {
 		return err
 	}
 
-	wm := worktree.New(r, *root)
-	path := wm.Path(slug, number)
-	if err := wm.Remove(ctx, src, slug, number); err != nil {
-		if errors.Is(err, worktree.ErrDirtyWorktree) {
-			return fmt.Errorf("%w\n  the worktree holds changes that are not mine; resolve them or remove it manually", err)
-		}
-		return err
+	path, err := svc.Remove(ctx, review.Options{Repo: slug, Number: number})
+	if err != nil {
+		return explainDirty(err)
 	}
-
-	// Only once the worktree is gone: a refused removal must leave the review
-	// that describes it intact.
-	_ = os.RemoveAll(reviewDir(*root, slug, number))
 
 	return emit(removeResult{
 		Repo: slug, PRNumber: number,
@@ -549,51 +492,16 @@ func cmdReviewJSON(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout+time.Minute)
 	defer cancel()
 
-	r := xexec.Real{}
-	client := gh.New(r)
-	cwd, _ := os.Getwd()
-
-	slug := *repo
-	if slug == "" {
-		if slug, err = client.CurrentRepo(ctx, cwd); err != nil {
-			return err
-		}
-	}
-	pr, err := client.ViewPR(ctx, cwd, slug, number)
-	if err != nil {
-		return err
-	}
-	src, err := sourceRepoDir(ctx, r, cwd, slug, *root)
-	if err != nil {
-		return err
-	}
-	wt, err := worktree.New(r, *root).Ensure(ctx, src, pr)
+	svc, err := newService(xexec.Real{}, *root)
 	if err != nil {
 		return err
 	}
 
-	prov := artifact.Provenance{
-		Repo: pr.Repo, PRNumber: pr.Number,
-		BaseSHA: pr.BaseSHA, HeadSHA: pr.HeadSHA,
-		RubricVersion: runner.RubricVersion, Model: *model,
-		SchemaVersion: artifact.Version,
-	}
-	artifactDir := reviewDir(*root, pr.Repo, pr.Number)
-	if *force {
-		discardCachedReview(artifactDir)
-	}
-
-	run := &runner.Runner{
-		Reviewer: &runner.Claude{Runner: r, Model: *model},
-		Timeout:  *timeout,
-	}
-	out, err := run.Run(ctx, artifactDir, wt.Path, prov)
+	out, err := svc.Run(ctx, review.Options{
+		Repo: *repo, Number: number,
+		Model: *model, Force: *force, Timeout: *timeout,
+	})
 	if err != nil {
-		return err
-	}
-
-	mdPath := filepath.Join(artifactDir, "review.md")
-	if err := os.WriteFile(mdPath, []byte(render.Markdown(out.Review, pr.Title)), 0o644); err != nil {
 		return err
 	}
 
@@ -603,68 +511,16 @@ func cmdReviewJSON(args []string) error {
 	}
 
 	res := reviewResult{
-		Repo: pr.Repo, PRNumber: pr.Number,
+		Repo: out.PR.Repo, PRNumber: out.PR.Number,
 		Status: string(out.Review.Status), FromCache: out.FromCache,
-		StaleReason: out.StaleReason, Worktree: wt.Path,
-		ReviewJSON: filepath.Join(artifactDir, "review.json"),
-		ReviewMD:   mdPath,
-		Counts:     counts, Findings: out.Review.Findings,
+		StaleReason: out.StaleReason, Worktree: out.Worktree.Path,
+		ReviewJSON: out.ReviewJSON(), ReviewMD: out.ReviewMD(),
+		Counts: counts, Findings: out.Review.Findings,
 	}
-	if sess, err := artifact.ReadSession(artifactDir); err == nil {
-		res.SessionID = sess.SessionID
-		res.ResumeCommand = sess.ResumeCommand
+	if out.Session != nil {
+		res.SessionID = out.Session.SessionID
+		res.ResumeCommand = out.Session.ResumeCommand
 	}
 	return emit(res)
 }
 
-// sourceRepoDir returns a local clone of slug to create worktrees from.
-//
-// The current directory is used when it is already that repository. Otherwise
-// a bare mirror is kept under the review root, so the extension can open a pull
-// request in a repository the user has never cloned.
-func sourceRepoDir(ctx context.Context, r xexec.Runner, cwd, slug, root string) (string, error) {
-	if current, err := gh.New(r).CurrentRepo(ctx, cwd); err == nil && current == slug {
-		return cwd, nil
-	}
-	if root == "" {
-		root = defaultRoot()
-	}
-	// The mirror lives under the same root as the worktrees it feeds, so that
-	// -root moves the whole review tree rather than splitting it in two.
-	dir := filepath.Join(root, ".repos", worktree.DirName(slug, 0)+".git")
-	if _, err := os.Stat(dir); err == nil {
-		// Refresh so a newly opened pull request is reachable.
-		_, _ = r.Run(ctx, dir, "git", "fetch", "--no-tags", "origin")
-		return dir, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return "", err
-	}
-	url := fmt.Sprintf("https://github.com/%s.git", slug)
-	if _, err := r.Run(ctx, "", "git", "clone", "--bare", "--filter=blob:none", url, dir); err != nil {
-		return "", fmt.Errorf("cloning %s: %w", slug, err)
-	}
-	return dir, nil
-}
-
-func reviewDir(root, repo string, number int) string {
-	return filepath.Join(root, ".reviews", worktree.DirName(repo, number))
-}
-
-// discardCachedReview drops a stored review and the session that produced it.
-//
-// The two travel together: a session id belongs to a specific review, so
-// keeping it after discarding the review would advertise a resume command for a
-// conversation that no longer has an artifact.
-func discardCachedReview(artifactDir string) {
-	_ = os.Remove(filepath.Join(artifactDir, "review.json"))
-	_ = os.Remove(filepath.Join(artifactDir, "session.json"))
-}
-
-func prNumber(arg string) (int, error) {
-	n, err := strconv.Atoi(arg)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid pull request number %q", arg)
-	}
-	return n, nil
-}
