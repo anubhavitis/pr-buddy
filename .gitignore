@@ -5,3 +5,5 @@
 browser/node_modules/
 browser/out/
 /pr-buddy-host
+site/node_modules/
+site/.wrangler/

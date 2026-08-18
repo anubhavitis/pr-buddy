@@ -76,3 +76,14 @@ cd browser && npm test && npm run compile
 ```
 
 Tag `v*` and push to cut a GitHub Release (`darwin/arm64` only).
+
+## Site
+
+Static Worker at [pr-buddy.anubhav.wtf](https://pr-buddy.anubhav.wtf). Domain must live on the same Cloudflare account.
+
+```sh
+cd site
+npx wrangler deploy
+```
+
+Local: `cd site && npx wrangler dev`. Regenerate the OG card with `python3 scripts/og.py`.

@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pr-buddy — understand-first GitHub reviews</title>
+    <meta
+      name="description"
+      content="Understand-first file order for GitHub pull requests. A Chrome overlay plus a local host. You still write every comment."
+    />
+    <link rel="canonical" href="https://pr-buddy.anubhav.wtf/" />
+    <meta name="theme-color" content="#fff8ee" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="pr-buddy" />
+    <meta property="og:url" content="https://pr-buddy.anubhav.wtf/" />
+    <meta property="og:title" content="pr-buddy — understand-first GitHub reviews" />
+    <meta
+      property="og:description"
+      content="Understand-first file order for GitHub pull requests. A Chrome overlay plus a local host. You still write every comment."
+    />
+    <meta property="og:image" content="https://pr-buddy.anubhav.wtf/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="pr-buddy: understand-first file order for GitHub pull requests. You still write every comment."
+    />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@anubhavitis" />
+    <meta name="twitter:title" content="pr-buddy — understand-first GitHub reviews" />
+    <meta
+      name="twitter:description"
+      content="Understand-first file order for GitHub pull requests. A Chrome overlay plus a local host. You still write every comment."
+    />
+    <meta name="twitter:image" content="https://pr-buddy.anubhav.wtf/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="pr-buddy: understand-first file order for GitHub pull requests. You still write every comment."
+    />
+
+    <link rel="icon" href="/icon32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/icon128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <style>
+      :root {
+        --owl: #e07a2f;
+        --owl-bright: #f4a04a;
+        --paper: #fff8ee;
+        --ink: #2a1a10;
+        --muted: color-mix(in srgb, var(--ink) 58%, transparent);
+        --line: color-mix(in srgb, var(--owl) 28%, #e8d9c8);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--paper);
+        color: var(--ink);
+        font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      }
+      main {
+        width: min(640px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 56px 0 80px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+      header img {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+      }
+      header span {
+        font-weight: 650;
+        letter-spacing: -0.03em;
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(1.7rem, 4vw, 2.15rem);
+        line-height: 1.2;
+        letter-spacing: -0.04em;
+      }
+      .lede {
+        margin: 0 0 28px;
+        color: var(--muted);
+        max-width: 38rem;
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 36px;
+      }
+      a.btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 14px;
+        border-radius: 10px;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .btn.primary {
+        background: var(--owl);
+        color: var(--paper);
+      }
+      .btn.ghost {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+      h2 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        font-weight: 650;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      ol {
+        margin: 0 0 32px;
+        padding-left: 1.2rem;
+      }
+      li {
+        margin: 0 0 8px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.88em;
+        background: color-mix(in srgb, var(--owl) 10%, transparent);
+        padding: 0.1em 0.35em;
+        border-radius: 4px;
+      }
+      .flow {
+        width: 100%;
+        height: auto;
+        margin: 0 0 32px;
+      }
+      .note {
+        margin: 0 0 32px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      footer {
+        display: flex;
+        gap: 16px;
+        font-size: 14px;
+      }
+      footer a {
+        color: var(--ink);
+      }
+      @media (max-width: 520px) {
+        main {
+          padding-top: 36px;
+        }
+        .actions {
+          flex-direction: column;
+        }
+        a.btn {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="/icon128.png" width="40" height="40" alt="" />
+        <span>pr-buddy</span>
+      </header>
+      <h1>Understand-first file order for GitHub pull requests.</h1>
+      <p class="lede">
+        A Chrome overlay on the Files tab. A local model reorders the tree and stacked diffs.
+        You still write every comment.
+      </p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/anubhavitis/pr-buddy/releases/latest/download/pr-buddy-host-darwin-arm64">Download host (Mac M-series)</a>
+        <a class="btn ghost" href="https://github.com/anubhavitis/pr-buddy/releases/latest/download/pr-buddy-extension.zip">Download extension</a>
+      </div>
+
+      <h2>Use</h2>
+      <ol>
+        <li>Run the host. Leave it running on <code>127.0.0.1:17342</code>.</li>
+        <li>If macOS blocks the binary: right-click → Open.</li>
+        <li>Unzip the extension. Chrome → <code>chrome://extensions</code> → Developer mode → Load unpacked.</li>
+        <li>Open a PR <strong>Files</strong> tab. Click the pr-buddy pill.</li>
+        <li>Pick <code>claude</code>, <code>grok</code>, or <code>mlx</code>. Write comments in GitHub.</li>
+      </ol>
+      <p class="note">
+        Need Chrome, an Apple Silicon Mac, and one backend already installed.
+        No Go or npm. Host forgotten → the popup says offline.
+      </p>
+
+      <h2>Flow</h2>
+      <img class="flow" src="/flow.svg" width="720" height="140" alt="Open a Files tab, a local model orders the files, you write the review" />
+
+      <footer>
+        <a href="https://github.com/anubhavitis/pr-buddy">GitHub</a>
+        <a href="https://www.anubhav.wtf">anubhav.wtf</a>
+      </footer>
+    </main>
+  </body>
+</html>

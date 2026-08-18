@@ -1,0 +1,12 @@
+{
+  "name": "pr-buddy-site",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "og": "python3 scripts/og.py"
+  },
+  "devDependencies": {
+    "wrangler": "^4.87.0"
+  }
+}
