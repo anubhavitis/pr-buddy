@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>pr-buddy — understand-first GitHub reviews</title>
+    <title>pr-buddy: understand-first GitHub reviews</title>
     <meta
       name="description"
       content="Understand-first file order for GitHub pull requests. A Chrome overlay plus a local host. You still write every comment."
@@ -16,7 +16,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="pr-buddy" />
     <meta property="og:url" content="https://pr-buddy.anubhav.wtf/" />
-    <meta property="og:title" content="pr-buddy — understand-first GitHub reviews" />
+    <meta property="og:title" content="pr-buddy: understand-first GitHub reviews" />
     <meta
       property="og:description"
       content="Understand-first file order for GitHub pull requests. A Chrome overlay plus a local host. You still write every comment."
@@ -32,7 +32,7 @@
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@anubhavitis" />
-    <meta name="twitter:title" content="pr-buddy — understand-first GitHub reviews" />
+    <meta name="twitter:title" content="pr-buddy: understand-first GitHub reviews" />
     <meta
       name="twitter:description"
       content="Understand-first file order for GitHub pull requests. A Chrome overlay plus a local host. You still write every comment."
@@ -222,6 +222,32 @@
         color: var(--muted);
         font-size: 14px;
       }
+      .probs {
+        list-style: none;
+        margin: 0 0 32px;
+        padding: 0;
+        display: grid;
+        gap: 18px;
+      }
+      .probs li {
+        margin: 0;
+        padding-left: 14px;
+        border-left: 2px solid var(--line);
+      }
+      .probs h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      .probs p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .probs a {
+        color: var(--owl);
+      }
       .note {
         margin: 0 0 32px;
         color: var(--muted);
@@ -264,7 +290,40 @@
         <a class="btn ghost" href="https://github.com/anubhavitis/pr-buddy/releases/latest/download/pr-buddy-extension.zip">Download extension</a>
       </div>
 
-      <h2>Install — two pieces</h2>
+      <h2>What it fixes</h2>
+      <ul class="probs">
+        <li>
+          <h3>GitHub sorts your files alphabetically.</h3>
+          <p>
+            Alphabetical is not a reading order. The type that explains the change sits
+            three folders below the code that uses it, so you scroll up and down
+            rebuilding the shape of it in your head. Position matters more than it looks:
+            on IntelliJ IDEA, <a href="https://arxiv.org/abs/2306.06956">Bagirov et al.</a>
+            found reviewers leave more comments on files shown higher up, and that ordering
+            by diff beat alphabetical at putting the risky files where someone would
+            actually look. Reviewers already work around this, commenting out of
+            alphabetical order on 44.6% of pull requests in
+            <a href="https://arxiv.org/abs/2506.10654">a study of 23,241 of them</a>.
+            pr-buddy hands you that order up front.
+          </p>
+        </li>
+        <li>
+          <h3>You open the diff not knowing what any file is for.</h3>
+          <p>
+            Every file is a wall of green and red you have to classify yourself, and that
+            cost lands hardest on bugs spread across several files.
+            <a href="https://doi.org/10.1007/s10664-018-9676-8">Baum, Schneider and Bacchelli</a>
+            ran 50 mostly professional developers through seeded reviews: the ones with more
+            working memory to spare caught more delocalized defects, the kind you only see by
+            holding several files at once. pr-buddy writes a line or two per file and a
+            summary per group, so that attention goes to the code instead of to orientation.
+            Straight version: the same study could not reliably show that reordering alone
+            improves defect find rate. This buys you ergonomics, not a proven win.
+          </p>
+        </li>
+      </ul>
+
+      <h2>Install: two pieces</h2>
       <ul class="steps">
         <li>
           <span class="n" aria-hidden="true">1</span>
@@ -288,16 +347,16 @@
         </li>
       </ul>
       <p class="note">
-        Install the host first — the extension needs something to talk to. If it is not
-        running, the overlay says <code>host offline — start pr-buddy-host</code>; start the
-        binary and click again. Needs Chrome, an Apple Silicon Mac, and one of
-        <code>claude</code>, <code>grok</code>, or <code>mlx</code> already installed. No Go or npm.
+        Install the host first. The extension needs something to talk to, and if the host
+        is not running the overlay just says <code>host offline — start pr-buddy-host</code>.
+        Start the binary and click again. You need Chrome, an Apple Silicon Mac, and one of
+        <code>claude</code>, <code>grok</code>, or <code>mlx</code> already installed. No Go, no npm.
       </p>
 
       <h2>How it works</h2>
       <p class="note diagram-lede">
         Two installs. The extension rewrites the GitHub page; the host runs your model.
-        They talk over <code>127.0.0.1:17342</code> — a port on your own laptop.
+        They talk over <code>127.0.0.1:17342</code>, a port on your own laptop.
       </p>
 <svg xmlns="http://www.w3.org/2000/svg" class="diagram" width="760" height="520" viewBox="0 0 760 520" role="img" aria-labelledby="archtitle archdesc" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
   <title id="archtitle">How pr-buddy works: two installs talking over 127.0.0.1</title>
@@ -342,63 +401,63 @@
   <rect class="frame" x="20" y="74" width="720" height="392" rx="14"/>
   <text class="ts" x="36" y="95">Your laptop</text>
 
-  <path class="frame" d="M392 112 V 452" stroke-dasharray="3 5"/>
+  <path class="frame" d="M381 112 V 404" stroke-dasharray="3 5"/>
   <text class="lab" x="36" y="116">BROWSER</text>
-  <text class="lab" x="410" y="116">MACHINE</text>
+  <text class="lab" x="399" y="116">MACHINE</text>
 
-  <rect class="ext" x="38" y="140" width="300" height="268" rx="12"/>
+  <rect class="ext" x="38" y="140" width="272" height="268" rx="12"/>
   <circle class="badgeC" cx="38" cy="140" r="13"/>
   <text class="badgeT" x="38" y="144" text-anchor="middle">2</text>
   <text class="tb" x="62" y="166">Chrome extension</text>
   <text class="ts" x="62" y="183">load unpacked · one install</text>
 
-  <rect class="box" x="54" y="198" width="268" height="76" rx="10"/>
+  <rect class="box" x="54" y="198" width="240" height="76" rx="10"/>
   <text class="tb" x="70" y="222">PR Files tab</text>
   <text class="ts" x="70" y="241">content script reads the page,</text>
   <text class="ts" x="70" y="257">then reorders and annotates it</text>
 
-  <rect class="box" x="54" y="316" width="268" height="72" rx="10"/>
+  <rect class="box" x="54" y="316" width="240" height="72" rx="10"/>
   <text class="tb" x="70" y="340">extension worker</text>
   <text class="ts" x="70" y="359">the only part that</text>
   <text class="ts" x="70" y="375">talks to the host</text>
 
-  <path class="wire" d="M176 274 V 314" marker-end="url(#ah)"/>
-  <path class="wire" d="M218 314 V 276" marker-end="url(#ah)" opacity="0.4"/>
+  <path class="wire" d="M162 274 V 314" marker-end="url(#ah)"/>
+  <path class="wire" d="M204 314 V 276" marker-end="url(#ah)" opacity="0.4"/>
 
-  <rect class="box" x="428" y="198" width="290" height="86" rx="10"/>
-  <circle class="badgeC" cx="428" cy="198" r="13"/>
-  <text class="badgeT" x="428" y="202" text-anchor="middle">1</text>
-  <text class="tb" x="452" y="224">pr-buddy-host</text>
-  <text class="ts mono" x="452" y="245">127.0.0.1:17342</text>
-  <text class="ts" x="452" y="265">loopback only — refuses</text>
-  <text class="ts" x="452" y="278">anything else</text>
+  <rect class="box" x="452" y="198" width="266" height="86" rx="10"/>
+  <circle class="badgeC" cx="452" cy="198" r="13"/>
+  <text class="badgeT" x="452" y="202" text-anchor="middle">1</text>
+  <text class="tb" x="476" y="224">pr-buddy-host</text>
+  <text class="ts mono" x="476" y="245">127.0.0.1:17342</text>
+  <text class="ts" x="476" y="265">loopback only, refuses</text>
+  <text class="ts" x="476" y="278">anything else</text>
 
-  <rect class="box" x="428" y="316" width="290" height="72" rx="10"/>
-  <text class="tb" x="444" y="340">claude · grok · mlx</text>
-  <text class="ts" x="444" y="359">whichever you already use</text>
-  <text class="ts" x="444" y="375">mlx is fully offline</text>
+  <rect class="box" x="452" y="316" width="266" height="72" rx="10"/>
+  <text class="tb" x="468" y="340">claude · grok · mlx</text>
+  <text class="ts" x="468" y="359">whichever you already use</text>
+  <text class="ts" x="468" y="375">mlx is fully offline</text>
 
-  <path class="wire" d="M573 284 V 314" marker-end="url(#ah)"/>
+  <path class="wire" d="M585 284 V 314" marker-end="url(#ah)"/>
 
   <path class="ghost" d="M690 316 V 300 H 730 V 40" marker-end="url(#ahg)"/>
-  <text class="ts" x="688" y="140" text-anchor="end">claude · grok only —</text>
+  <text class="ts" x="688" y="140" text-anchor="end">claude · grok only:</text>
   <text class="ts" x="688" y="156" text-anchor="end">metadata, never your diff</text>
 
-  <path class="hero" d="M324 352 H 426" marker-end="url(#ah)"/>
-  <text class="heroT mono" x="383" y="332" text-anchor="middle">POST /complete</text>
-  <text class="heroS" x="383" y="374" text-anchor="middle">paths · title</text>
-  <text class="heroS" x="383" y="388" text-anchor="middle">description · SHA</text>
+  <path class="hero" d="M312 352 H 450" marker-end="url(#ah)"/>
+  <text class="heroT mono" x="381" y="330" text-anchor="middle">POST /complete</text>
+  <text class="heroS" x="381" y="374" text-anchor="middle">paths · title</text>
+  <text class="heroS" x="381" y="388" text-anchor="middle">description · SHA</text>
 
-  <g transform="translate(383,428)">
+  <g transform="translate(381,424)">
     <line class="no" x1="-30" y1="0" x2="30" y2="0"/>
     <line class="no" x1="-9" y1="-10" x2="9" y2="10"/>
     <line class="no" x1="9" y1="-10" x2="-9" y2="10"/>
   </g>
-  <text class="noT" x="383" y="456" text-anchor="middle">diff contents — never sent</text>
+  <text class="noT" x="381" y="452" text-anchor="middle">diff contents: never sent</text>
 </svg>
       <p class="note">
         The extension sends the file paths, the PR title and description, and the head SHA.
-        <strong>Your diff is never sent</strong> — pr-buddy never checks out, builds, or runs the branch.
+        <strong>Your diff is never sent.</strong> pr-buddy never checks out, builds, or runs the branch.
         <code>claude</code> and <code>grok</code> reach their vendor API with that same metadata;
         <code>mlx</code> stays fully offline.
       </p>
