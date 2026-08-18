@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string" },
+                "blurb": { "type": "string" }
+              },
+              "required": ["path", "blurb"]
+            }
+          }
+        },
+        "required": ["name", "summary", "files"]
+      }
+    }
+  },
+  "required": ["groups"]
+}

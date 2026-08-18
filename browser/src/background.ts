@@ -1,4 +1,5 @@
 import { cacheKey } from "./guide";
+import { completeRequest } from "./host";
 import { normalizeSettings, type Settings } from "./settings";
 
 type CompleteMsg = {
@@ -7,6 +8,7 @@ type CompleteMsg = {
   repo: string;
   number: number;
   headSHA: string;
+  files?: string[];
   prompt: string;
   force?: boolean;
 };
@@ -22,7 +24,7 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
     .executeScript({ target: { tabId }, files: ["out/content.js"] })
     .catch(() => undefined);
   void chrome.scripting
-    .insertCSS({ target: { tabId }, files: ["src/styles.css"] })
+    .insertCSS({ target: { tabId }, files: ["out/styles.css"] })
     .catch(() => undefined);
 });
 
@@ -62,6 +64,7 @@ async function complete(msg: CompleteMsg): Promise<{ ok: boolean; text?: string;
     number: msg.number,
     headSHA: msg.headSHA || "no-sha",
     backend: settings.backend,
+    files: msg.files,
   });
   if (!msg.force) {
     const cached = (await chrome.storage.local.get(key))[key] as string | undefined;
@@ -70,12 +73,7 @@ async function complete(msg: CompleteMsg): Promise<{ ok: boolean; text?: string;
   const res = await fetch(`${settings.hostUrl}/complete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      backend: settings.backend,
-      prompt: msg.prompt,
-      mlx_url: settings.mlxUrl,
-      mlx_model: settings.mlxModel,
-    }),
+    body: JSON.stringify(completeRequest(settings, msg.prompt)),
   });
   const body = (await res.json()) as { ok?: boolean; text?: string; error?: string };
   if (!res.ok || !body.ok || !body.text) {

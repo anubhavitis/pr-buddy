@@ -6,6 +6,7 @@ import { flattenGuide, parseGuide } from "./guide";
 import {
   commitsDockAction,
   fileSetSignature,
+  shouldReuseGuide,
   groupRows,
   isCommitsPickerLabel,
   isFileFilterField,
@@ -132,6 +133,13 @@ test("fileSetSignature ignores order so a reorder does not retrigger", () => {
     fileSetSignature(["b.ts", "a.ts", "b.ts"]),
     fileSetSignature(["a.ts", "b.ts"]),
   );
+});
+
+test("shouldReuseGuide keeps a complete guide when GitHub shows a subset", () => {
+  assert.equal(shouldReuseGuide([], ["a.ts"]), false);
+  assert.equal(shouldReuseGuide(["a.ts", "b.ts"], ["b.ts", "a.ts"]), true);
+  assert.equal(shouldReuseGuide(["a.ts", "b.ts"], ["a.ts"]), true);
+  assert.equal(shouldReuseGuide(["a.ts"], ["a.ts", "b.ts"]), false);
 });
 
 test("shouldRedockPanel only when the pill left the toolbar row", () => {

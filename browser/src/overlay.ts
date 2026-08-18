@@ -1,5 +1,7 @@
-import type { OrderedFile } from "./guide";
+import { fileSetSignature, type OrderedFile } from "./guide";
 import { cleanScrapedPath } from "./pr";
+
+export { fileSetSignature };
 
 export type OverlayGroup = {
   name: string;
@@ -300,8 +302,9 @@ function nodeHasLabel(el: Element, pred: (text: string) => boolean): boolean {
   return false;
 }
 
-export function fileSetSignature(paths: string[]): string {
-  return [...new Set(paths)].sort().join("\n");
+export function shouldReuseGuide(lastFiles: string[], files: string[]): boolean {
+  if (lastFiles.length === 0) return false;
+  return fileSetSignature(files) === fileSetSignature(lastFiles) || files.every((p) => lastFiles.includes(p));
 }
 
 export function shouldRedockPanel(panelParent: object | null, toolbarParent: object): boolean {

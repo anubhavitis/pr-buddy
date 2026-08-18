@@ -1,6 +1,26 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { cacheKey, flattenGuide, parseGuide } from "./guide";
+
+test("parseGuide accepts a document valid against the host guide schema", () => {
+  const schema = JSON.parse(
+    readFileSync(join(__dirname, "..", "..", "internal", "host", "guide.schema.json"), "utf8"),
+  ) as { required?: string[]; properties?: { groups?: unknown } };
+  assert.deepEqual(schema.required, ["groups"]);
+  assert.ok(schema.properties?.groups);
+  const guide = parseGuide(`{
+    "groups": [
+      {
+        "name": "Contracts",
+        "summary": "Public API first",
+        "files": [{ "path": "api/server.go", "blurb": "HTTP entry for retries." }]
+      }
+    ]
+  }`);
+  assert.equal(guide.groups[0].files[0].path, "api/server.go");
+});
 
 test("parseGuide reads clean JSON", () => {
   const guide = parseGuide(`{
@@ -77,9 +97,59 @@ test("flattenGuide drops paths the PR does not contain", () => {
   );
 });
 
-test("cacheKey is repo + pr + head + backend", () => {
+test("cacheKey changes when the file set grows", () => {
+  const base = {
+    owner: "acme",
+    repo: "widgets",
+    number: 4,
+    headSHA: "abc",
+    backend: "claude",
+  };
+  const first = cacheKey({ ...base, files: ["a.go"] });
+  const later = cacheKey({ ...base, files: ["a.go", "b.go"] });
+  assert.notEqual(first, later);
+});
+
+test("cacheKey ignores file order and duplicates", () => {
+  const base = {
+    owner: "acme",
+    repo: "widgets",
+    number: 4,
+    headSHA: "abc",
+    backend: "claude",
+  };
   assert.equal(
-    cacheKey({ owner: "acme", repo: "widgets", number: 4, headSHA: "abc", backend: "claude" }),
-    "acme/widgets#4:abc:claude",
+    cacheKey({ ...base, files: ["b.go", "a.go", "b.go"] }),
+    cacheKey({ ...base, files: ["a.go", "b.go"] }),
   );
+});
+
+test("cacheKey changes when backend or head changes", () => {
+  const files = ["a.go"];
+  const a = cacheKey({
+    owner: "acme",
+    repo: "widgets",
+    number: 4,
+    headSHA: "abc",
+    backend: "claude",
+    files,
+  });
+  const b = cacheKey({
+    owner: "acme",
+    repo: "widgets",
+    number: 4,
+    headSHA: "abc",
+    backend: "grok",
+    files,
+  });
+  const c = cacheKey({
+    owner: "acme",
+    repo: "widgets",
+    number: 4,
+    headSHA: "def",
+    backend: "claude",
+    files,
+  });
+  assert.notEqual(a, b);
+  assert.notEqual(a, c);
 });

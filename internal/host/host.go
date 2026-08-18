@@ -3,6 +3,7 @@ package host
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +15,8 @@ import (
 	xexec "github.com/anubhavitis/pr-buddy/internal/exec"
 )
 
-const grokGuideSchema = `{"type":"object","properties":{"groups":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"summary":{"type":"string"},"files":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"blurb":{"type":"string"}},"required":["path","blurb"]}}},"required":["name","summary","files"]}}},"required":["groups"]}`
+//go:embed guide.schema.json
+var grokGuideSchema string
 
 type Backend string
 
@@ -61,7 +63,7 @@ func (c *Completer) Complete(ctx context.Context, req Request) (string, error) {
 		return c.runCLI(ctx, "grok",
 			"-p", req.Prompt,
 			"--output-format", "json",
-			"--json-schema", grokGuideSchema,
+			"--json-schema", strings.TrimSpace(grokGuideSchema),
 			"--disable-web-search",
 			"--permission-mode", "dontAsk",
 			"--max-turns", "1",

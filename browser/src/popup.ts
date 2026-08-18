@@ -18,16 +18,6 @@ void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
   page.textContent = `${pr.owner}/${pr.repo}#${pr.number} · open Files changed`;
 });
 
-void fetch("http://127.0.0.1:17342/health")
-  .then((r) => {
-    host.className = r.ok ? "ok" : "bad";
-    host.textContent = r.ok ? "host: running on :17342" : `host: HTTP ${r.status}`;
-  })
-  .catch(() => {
-    host.className = "bad";
-    host.textContent = "host: offline — run ./pr-buddy-host";
-  });
-
 const backend = document.getElementById("backend") as HTMLSelectElement;
 const mlxFields = document.getElementById("mlx-fields")!;
 const mlxUrl = document.getElementById("mlx-url") as HTMLInputElement;
@@ -40,8 +30,22 @@ function showSettings(s: Settings): void {
   mlxFields.hidden = s.backend !== "mlx";
 }
 
+function pingHost(url: string): void {
+  void fetch(`${url.replace(/\/$/, "")}/health`)
+    .then((r) => {
+      host.className = r.ok ? "ok" : "bad";
+      host.textContent = r.ok ? `host: running at ${url}` : `host: HTTP ${r.status}`;
+    })
+    .catch(() => {
+      host.className = "bad";
+      host.textContent = "host: offline — run ./pr-buddy-host";
+    });
+}
+
 void chrome.runtime.sendMessage({ type: "getSettings" }).then((s: Settings) => {
-  showSettings(s ?? defaultSettings);
+  const settings = s ?? defaultSettings;
+  showSettings(settings);
+  pingHost(settings.hostUrl);
 });
 
 backend.addEventListener("change", () => {

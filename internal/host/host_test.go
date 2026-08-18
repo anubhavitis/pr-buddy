@@ -42,6 +42,24 @@ func TestCompleteClaudeUsesPrintModeWithoutTools(t *testing.T) {
 	}
 }
 
+func TestGuideSchemaIsTheGrokContract(t *testing.T) {
+	var schema struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal([]byte(grokGuideSchema), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if len(schema.Required) != 1 || schema.Required[0] != "groups" {
+		t.Fatalf("required %v", schema.Required)
+	}
+	if schema.Properties["groups"].Type != "array" {
+		t.Fatalf("groups type %q", schema.Properties["groups"].Type)
+	}
+}
+
 func TestCompleteGrokUsesSingleTurn(t *testing.T) {
 	fake := xexec.NewFake().RespondOK("grok", "ok")
 	c := &Completer{Exec: fake}

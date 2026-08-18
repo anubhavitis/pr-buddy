@@ -76,14 +76,29 @@ export function flattenGuide(guide: Guide, prPaths: string[]): OrderedFile[] {
   return out;
 }
 
+// Bump when parseGuide or the prompt JSON shape changes so stored guides
+// produced under the old contract cannot be served.
+export const GuideCacheVersion = 1;
+
+export function fileSetSignature(paths: string[]): string {
+  return [...new Set(paths)].sort().join("\n");
+}
+
 export function cacheKey(p: {
   owner: string;
   repo: string;
   number: number;
   headSHA: string;
   backend: string;
+  files?: string[];
 }): string {
-  return `${p.owner}/${p.repo}#${p.number}:${p.headSHA}:${p.backend}`;
+  return [
+    `${p.owner}/${p.repo}#${p.number}`,
+    p.headSHA || "no-sha",
+    p.backend,
+    `v${GuideCacheVersion}`,
+    fileSetSignature(p.files ?? []),
+  ].join(":");
 }
 
 function extractJSON(raw: string): string {

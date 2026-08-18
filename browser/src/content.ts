@@ -2,8 +2,8 @@ import { flattenGuide, parseGuide, type OrderedFile } from "./guide";
 import {
   diffAnchor,
   fileNoteCopy,
-  noteShouldBeOpen,
   fileSetSignature,
+  noteShouldBeOpen,
   findFileTreeHost,
   isDiffRegionId,
   isFileFilterField,
@@ -26,6 +26,7 @@ import {
   placeBeforeMergeStatus,
   readTreeItems,
   shortStatus,
+  shouldReuseGuide,
   wantedDiffOrder,
 } from "./overlay";
 import { buildPrompt } from "./prompt";
@@ -107,11 +108,7 @@ async function loadAndApply(force: boolean): Promise<void> {
   }
   const headSHA = findHeadSHAFromDOM(document);
   const key = `${id.owner}/${id.repo}#${id.number}:${headSHA || "no-sha"}:${fileSetSignature(files)}`;
-  const sameOrSubset =
-    lastFiles.length > 0 &&
-    (fileSetSignature(files) === fileSetSignature(lastFiles) ||
-      files.every((p) => lastFiles.includes(p)));
-  if (!force && lastRows && sameOrSubset) {
+  if (!force && lastRows && shouldReuseGuide(lastFiles, files)) {
     applyOverlay(lastRows);
     return;
   }
@@ -125,6 +122,7 @@ async function loadAndApply(force: boolean): Promise<void> {
       repo: id.repo,
       number: id.number,
       headSHA,
+      files,
       prompt: buildPrompt({
         ...id,
         title: parseTitle(document.documentElement.innerHTML) || document.title,
