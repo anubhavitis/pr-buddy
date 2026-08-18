@@ -141,6 +141,15 @@ export function isFileFilterField(placeholder: string, ariaLabel: string): boole
   return /filter\s+(changed\s+)?files/i.test(`${placeholder} ${ariaLabel}`);
 }
 
+export function shouldWalkUpForCommitsDock(parent: {
+  childCount: number;
+  hasFileFilter: boolean;
+  hasFileTree: boolean;
+}): boolean {
+  if (parent.hasFileFilter || parent.hasFileTree) return false;
+  return parent.childCount === 1;
+}
+
 export type TreeItem = {
   level: number;
   name: string;
@@ -251,30 +260,50 @@ export function findCommitsPicker(root: ParentNode): Element | null {
   return best;
 }
 
+function childCountExcludingPanel(parent: Element): number {
+  return [...parent.children].filter((c) => c.id !== "pr-buddy-panel" && c.id !== "pr-buddy-dock").length;
+}
+
+function nodeHasFileFilter(root: Element): boolean {
+  return [...root.querySelectorAll("input")].some((el) =>
+    isFileFilterField(el.getAttribute("placeholder") || "", el.getAttribute("aria-label") || ""),
+  );
+}
+
+function nodeHasFileTree(root: Element): boolean {
+  return Boolean(root.querySelector("#pr-buddy-tree, file-tree, [role='tree']"));
+}
+
 export function placeBesideCommitsPicker(panel: Element, root: ParentNode): boolean {
   const picker = findCommitsPicker(root);
   if (!picker) return false;
 
-  let host: Element = picker;
-  let parent = picker.parentElement;
+  let host: Element = picker.closest("details") || picker;
+  let parent = host.parentElement;
   while (parent && parent !== document.body && parent !== document.documentElement) {
-    const siblings = [...parent.children].filter((c) => c !== panel);
-    if (siblings.length >= 2 && siblings.length <= 8) {
-      if (!shouldRedockPanel(panel.parentElement, parent)) return true;
-      const after = host.nextSibling;
-      if (after) parent.insertBefore(panel, after);
-      else parent.append(panel);
-      return true;
+    if (
+      !shouldWalkUpForCommitsDock({
+        childCount: childCountExcludingPanel(parent),
+        hasFileFilter: nodeHasFileFilter(parent),
+        hasFileTree: nodeHasFileTree(parent),
+      })
+    ) {
+      break;
     }
     host = parent;
-    parent = parent.parentElement;
+    parent = host.parentElement;
   }
-  const fallback = picker.parentElement;
-  if (!fallback) return false;
-  if (shouldRedockPanel(panel.parentElement, fallback)) {
-    if (picker.nextSibling) fallback.insertBefore(panel, picker.nextSibling);
-    else fallback.append(panel);
+  if (!parent) return false;
+
+  let dock = parent.querySelector(":scope > #pr-buddy-dock");
+  if (!(dock instanceof HTMLElement)) {
+    dock = document.createElement("div");
+    dock.id = "pr-buddy-dock";
+    host.insertAdjacentElement("afterend", dock);
   }
+  if (dock.contains(host) || nodeHasFileFilter(dock) || nodeHasFileTree(dock)) return false;
+  if (panel.parentElement === dock) return true;
+  dock.append(panel);
   return true;
 }
 

@@ -65,11 +65,24 @@ html[data-color-mode="dark"] #pr-buddy-panel {
   --pb-attention: var(--bgColor-attention-muted, #3d2f00);
 }
 
+#pr-buddy-dock {
+  display: flex;
+  align-items: center;
+  flex: 1 0 100%;
+  flex-basis: 100%;
+  width: 100%;
+  max-width: 100%;
+  margin: 4px 0 6px;
+  box-sizing: border-box;
+}
+
 #pr-buddy-panel.pr-buddy-panel--toolbar {
   position: relative;
-  z-index: 20;
-  flex: 0 0 auto;
-  margin: 0 0 0 8px;
+  z-index: auto;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
+  margin: 0;
   cursor: pointer;
 }
 

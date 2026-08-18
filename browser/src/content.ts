@@ -447,7 +447,7 @@ if (!boot.__prBuddyInstalled) {
     if (applying) return;
     for (const m of muts) {
       const el = m.target instanceof Element ? m.target : m.target.parentElement;
-      if (el && (isOurMutationTarget(el.id) || el.closest("#pr-buddy-panel, #pr-buddy-tree, #pr-buddy-dialog"))) continue;
+      if (el && (isOurMutationTarget(el.id) || el.closest("#pr-buddy-panel, #pr-buddy-tree, #pr-buddy-dialog, #pr-buddy-dock"))) continue;
       schedule();
       return;
     }

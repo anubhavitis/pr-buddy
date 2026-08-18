@@ -5,6 +5,7 @@ import {
   fileSetSignature,
   groupRows,
   isCommitsPickerLabel,
+  shouldWalkUpForCommitsDock,
   isFileFilterField,
   isMergeStatusLabel,
   isOurMutationTarget,
@@ -61,6 +62,14 @@ test("isCommitsPickerLabel matches the Files commit filter", () => {
   assert.equal(isCommitsPickerLabel("3 commits"), true);
   assert.equal(isCommitsPickerLabel("Ready to merge"), false);
   assert.equal(isCommitsPickerLabel("Filter files..."), false);
+});
+
+test("shouldWalkUpForCommitsDock stops at a parent that also owns the file filter", () => {
+  assert.equal(shouldWalkUpForCommitsDock({ childCount: 1, hasFileFilter: false, hasFileTree: false }), true);
+  assert.equal(shouldWalkUpForCommitsDock({ childCount: 3, hasFileFilter: false, hasFileTree: false }), false);
+  assert.equal(shouldWalkUpForCommitsDock({ childCount: 1, hasFileFilter: true, hasFileTree: false }), false);
+  assert.equal(shouldWalkUpForCommitsDock({ childCount: 4, hasFileFilter: true, hasFileTree: false }), false);
+  assert.equal(shouldWalkUpForCommitsDock({ childCount: 2, hasFileFilter: false, hasFileTree: true }), false);
 });
 
 test("shortStatus hides raw CLI failures", () => {
