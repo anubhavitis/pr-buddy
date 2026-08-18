@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="140" viewBox="0 0 720 140" role="img" aria-label="pr-buddy review flow">
+  <rect x="8" y="26" width="208" height="92" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <circle cx="32" cy="50" r="11" fill="#bc6c25"/>
+  <text x="32" y="54" text-anchor="middle" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="600">1</text>
+  <text x="50" y="55" fill="#1f2328" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" font-weight="600">Open a Files tab</text>
+  <text x="24" y="84" fill="#656d76" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12">Title, files, and head SHA</text>
+  <text x="24" y="100" fill="#656d76" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12">from the GitHub page</text>
+
+  <path d="M228 72h20" stroke="#bc6c25" stroke-width="2"/>
+  <path d="M244 66l8 6-8 6" fill="none" stroke="#bc6c25" stroke-width="2" stroke-linejoin="round"/>
+
+  <rect x="256" y="26" width="208" height="92" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <circle cx="280" cy="50" r="11" fill="#bc6c25"/>
+  <text x="280" y="54" text-anchor="middle" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="600">2</text>
+  <text x="298" y="55" fill="#1f2328" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" font-weight="600">Local model orders</text>
+  <text x="272" y="84" fill="#656d76" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12">claude, grok, or mlx</text>
+  <text x="272" y="100" fill="#656d76" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12">on this machine only</text>
+
+  <path d="M476 72h20" stroke="#bc6c25" stroke-width="2"/>
+  <path d="M492 66l8 6-8 6" fill="none" stroke="#bc6c25" stroke-width="2" stroke-linejoin="round"/>
+
+  <rect x="504" y="26" width="208" height="92" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
+  <circle cx="528" cy="50" r="11" fill="#bc6c25"/>
+  <text x="528" y="54" text-anchor="middle" fill="#fff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12" font-weight="600">3</text>
+  <text x="546" y="55" fill="#1f2328" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="14" font-weight="600">You write the review</text>
+  <text x="520" y="84" fill="#656d76" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12">Ordered list + summaries</text>
+  <text x="520" y="100" fill="#656d76" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="12">Comments stay yours</text>
+</svg>

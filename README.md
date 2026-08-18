@@ -1,150 +1,74 @@
-# pr-buddy
+<p align="center">
+  <img src="browser/icons/icon128.png" width="96" height="96" alt="pr-buddy">
+</p>
 
-Chrome overlay on github.com pull request Files tabs (`/files` and `/changes`).
+<h1 align="center">pr-buddy</h1>
 
-It asks a local model for an **understand-first file order**, replaces GitHub’s
-left file list with that order, and puts a **collapsed summary** on each diff.
-You still write the review. No findings. No draft comments.
+<p align="center">
+  Understand-first file order for GitHub pull requests.<br>
+  You still write every comment.
+</p>
 
-```mermaid
-flowchart LR
-  GH["github.com Files tab"] --> CS["content script"]
-  CS --> SW["service worker"]
-  SW --> Cache["chrome.storage.local"]
-  SW --> Host["pr-buddy-host :17342"]
-  Host --> Claude["claude CLI"]
-  Host --> Grok["grok CLI"]
-  Host --> MLX["mlx_lm.server /v1"]
-  CS --> UI["pill · ordered list · per-file Summary"]
+GitHub lists changed files alphabetically. pr-buddy is a Chrome overlay on the Files tab that asks a **local** model for a reading order — contracts and types first, then implementation, then wiring, then tests — and rewrites the file list and stacked diffs to match.
+
+No findings. No draft comments. The review stays yours.
+
+<p align="center">
+  <img src="docs/flow.svg" width="720" alt="Open a Files tab, a local model orders the files, you write the review">
+</p>
+
+## Install
+
+**Need:** Chrome, [Go 1.24+](https://go.dev/dl/), Node 18+, and at least one backend — [`claude`](https://docs.anthropic.com/en/docs/claude-code) CLI, [`grok`](https://docs.x.ai/docs) CLI, or [`mlx_lm.server`](https://github.com/ml-explore/mlx-lm) on loopback.
+
+```sh
+git clone https://github.com/anubhavitis/pr-buddy.git
+cd pr-buddy
+./install-browser.sh
 ```
+
+That builds `./pr-buddy-host` and the unpacked extension in `browser/`.
+
+### 1. Start the host
+
+Leave this running. It binds **loopback only** (`127.0.0.1:17342`).
+
+```sh
+./pr-buddy-host
+```
+
+### 2. Load the extension
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. **Load unpacked** → select the `browser/` folder
+
+### 3. Review a PR
+
+1. Open a pull request **Files** tab (`/files` or `/changes`)
+2. Click the **pr-buddy** pill (next to Ready to merge)
+3. Pick `claude`, `grok`, or `mlx`
+
+For MLX, set the URL (default `http://127.0.0.1:8080/v1`) and the model id.
+
+After you change `browser/src`, reload the extension, then hard-reload the tab.
 
 ## What you see
 
 | Surface | What it does |
 |---|---|
-| **Status pill** (next to Ready to merge) | Click for model picker + **Refresh order**. |
-| **Left file list** | Numbered paths in review order. No blurbs here. |
-| **Each stacked diff** | Collapsed **Summary** under the file header. |
+| **Status pill** | Model picker and **Refresh order** |
+| **Left file list** | Numbered paths in review order |
+| **Each stacked diff** | Collapsed **Summary** under the file header |
 
-Order: contracts / types / entrypoints → implementation → wiring → tests.
-
-## How a request flows
-
-```mermaid
-sequenceDiagram
-  participant Tab as Files tab
-  participant CS as content.ts
-  participant SW as background.ts
-  participant Host as pr-buddy-host
-  participant Model as claude / grok / mlx
-
-  Tab->>CS: PR URL + file list + head SHA
-  CS->>SW: complete(owner, repo, n, sha, prompt)
-  SW->>SW: cache key owner/repo#n:sha:backend
-  alt cache hit
-    SW-->>CS: cached guide JSON
-  else miss or Refresh
-    SW->>Host: POST /complete
-    Host->>Model: print-only, no tools
-    Model-->>Host: groups + per-file blurbs
-    Host-->>SW: { ok, text }
-    SW->>SW: store cache
-    SW-->>CS: guide JSON
-  end
-  CS->>Tab: numbered list + collapsible Summary
-```
-
-Cache key: `{owner}/{repo}#{number}:{headSHA}:{backend}`. Same head + same
-backend does not reshuffle. **Refresh order** ignores the cache.
-
-## Repo layout
-
-Live surface only. The old VS Code extension is gone. The unused Go review
-engine (`cmd/pr-buddy`, worktrees, `internal/runner`) is still in the tree.
-
-```
-pr-buddy/
-├── browser/                    Chrome MV3 unpacked extension
-│   ├── manifest.json
-│   ├── popup.html              toolbar popup (host health + backend)
-│   ├── src/
-│   │   ├── content.ts          GitHub overlay, pill dialog, tree, summaries
-│   │   ├── background.ts       cache + POST :17342/complete
-│   │   ├── popup.ts
-│   │   ├── guide.ts            parse / flatten / cacheKey
-│   │   ├── overlay.ts          dock pill, find file tree, order helpers
-│   │   ├── pr.ts               URL + file-list scrape
-│   │   ├── prompt.ts           understand-first prompt
-│   │   ├── settings.ts         claude | grok | mlx
-│   │   └── styles.css          GitHub light/dark tokens
-│   └── out/                    esbuild IIFE bundles
-├── cmd/pr-buddy-host/          loopback model router
-├── internal/host/              /health, /complete, CLI + MLX adapters
-└── install-browser.sh
-```
-
-```mermaid
-flowchart TB
-  subgraph chrome [browser/]
-    M[manifest.json]
-    C[content.ts]
-    B[background.ts]
-    P[popup.ts]
-    G[guide.ts]
-    O[overlay.ts]
-  end
-  subgraph go [cmd/pr-buddy-host + internal/host]
-    S["GET /health"]
-    X["POST /complete"]
-    A[Completer]
-  end
-  C -->|runtime.sendMessage| B
-  P -->|get/setSettings| B
-  B -->|fetch loopback| X
-  X --> A
-  A --> CLI[claude / grok]
-  A --> OpenAI[mlx OpenAI /v1/chat/completions]
-```
-
-## Prerequisites
-
-| | Why |
-|---|---|
-| **Chrome** | Only supported browser. github.com only. |
-| **Go 1.24+** | Builds `pr-buddy-host`. |
-| **Node 18+ / npm** | Builds the unpacked extension. |
-| **At least one backend** | `claude` CLI, `grok` CLI, or `mlx_lm.server` on loopback. |
-
-## Install
-
-```sh
-./install-browser.sh
-```
-
-Then:
-
-1. Leave `./pr-buddy-host` running (`127.0.0.1:17342`).
-2. Chrome → `chrome://extensions` → Developer mode → Load unpacked → `browser/`.
-3. Open a PR Files tab. After changing `browser/src`, refresh the extension, then hard-reload the tab.
-4. Click the **pr-buddy** pill to pick `claude` / `grok` / `mlx`. For MLX, set the URL (default `http://127.0.0.1:8080/v1`) and model id.
+Same head SHA + same backend is cached (`owner/repo#n:sha:backend`). **Refresh order** ignores the cache.
 
 ## Safety
 
-- Host binds **loopback only**.
-- MLX URLs are rejected unless they are loopback.
-- Claude/Grok run print-only, no tools, `--permission-mode dontAsk`.
+- Host binds loopback only. Non-loopback MLX URLs are rejected.
+- Claude and Grok run print-only, no tools, `--permission-mode dontAsk`.
 - Nothing from the PR is built, installed, or executed.
 - Comments stay in the GitHub UI, written by you.
-
-```mermaid
-flowchart LR
-  Untrusted["PR file list + title"] --> Prompt
-  Prompt --> Host
-  Host --> Model["CLI / MLX on this machine"]
-  Model --> Guide["order + blurbs, local only"]
-  Guide --> Overlay["DOM overlay"]
-  Overlay -.->|never| GitHubWrite["no comments, no reviews"]
-```
 
 ## Development
 
