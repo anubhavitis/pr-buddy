@@ -2,6 +2,7 @@ import { flattenGuide, parseGuide, type OrderedFile } from "./guide";
 import {
   diffAnchor,
   fileNoteCopy,
+  noteShouldBeOpen,
   fileSetSignature,
   findFileTreeHost,
   isDiffRegionId,
@@ -9,16 +10,23 @@ import {
   isOurMutationTarget,
   nativeTreesIn,
   orderedPaths,
-  type PathTreeNode,
+  type FileChange,
+  FILE_CHANGE_ICON,
+  FILE_CHANGE_LABEL,
+  collectFileChanges,
+  diffsNeedReorder,
+  fileRowLabel,
+  firstCommonAncestor,
+  hostUnder,
   pathForDiffFragment,
   pathFromVisibleLabel,
   pathsFromTreeItems,
-  pathsToTree,
   pickNoteInsert,
   placeBesideCommitsPicker,
   placeBeforeMergeStatus,
   readTreeItems,
   shortStatus,
+  wantedDiffOrder,
 } from "./overlay";
 import { buildPrompt } from "./prompt";
 import { defaultSettings, type Backend, type Settings } from "./settings";
@@ -37,7 +45,7 @@ let lastKey = "";
 let lastRows: OrderedFile[] | null = null;
 let lastFiles: string[] = [];
 let lastStatus = "";
-let diffsOrdered = false;
+
 let dialogOpen = false;
 let lastActivePath = "";
 let activePinnedUntil = 0;
@@ -51,7 +59,6 @@ function tick(): void {
     lastRows = null;
     lastFiles = [];
     lastStatus = "";
-    diffsOrdered = false;
     lastActivePath = "";
     closedNotes.clear();
     fileObserver?.disconnect();
@@ -63,7 +70,6 @@ function tick(): void {
     lastKey = "";
     lastRows = null;
     lastFiles = [];
-    diffsOrdered = false;
     fileObserver?.disconnect();
     setStatus("open the Files changed tab");
     return;
@@ -136,7 +142,6 @@ async function loadAndApply(force: boolean): Promise<void> {
     lastRows = rows;
     lastKey = key;
     lastFiles = files;
-    diffsOrdered = false;
     applyOverlay(rows);
     setStatus(res.cached ? `${rows.length} files · cached` : `${rows.length} files`);
   } catch (err) {
@@ -149,9 +154,14 @@ async function loadAndApply(force: boolean): Promise<void> {
 function applyOverlay(rows: OrderedFile[]): void {
   const host = findFileTreeHost(document);
   const tree = document.getElementById("pr-buddy-tree");
-  const sig = orderedPaths(rows).join("\n");
-  if (!tree || !host || !host.contains(tree) || tree.dataset.order !== sig) renderTree(rows);
-  else hideNativeTrees(host);
+  const paths = orderedPaths(rows);
+  const changes = collectFileChanges(document, paths);
+  const sig = paths.join("\n");
+  if (!tree || !host || !host.contains(tree) || tree.dataset.order !== sig) renderTree(rows, changes);
+  else {
+    hideNativeTrees(host);
+    paintFileChanges(tree, changes);
+  }
   renderDiffs(rows);
 }
 
@@ -173,7 +183,7 @@ function hideNativeTrees(host: Element): void {
   }
 }
 
-function renderTree(rows: OrderedFile[]): void {
+function renderTree(rows: OrderedFile[], changes: Map<string, FileChange>): void {
   const host = findFileTreeHost(document);
   if (!host) return;
   hideNativeTrees(host);
@@ -183,7 +193,7 @@ function renderTree(rows: OrderedFile[]): void {
   tree.id = "pr-buddy-tree";
   tree.dataset.order = orderedPaths(rows).join("\n");
   tree.replaceChildren();
-  tree.append(renderPathTree(pathsToTree(orderedPaths(rows))));
+  tree.append(renderFileList(rows, changes));
   syncActiveFromHash();
   if (lastActivePath) setActiveTreePath(lastActivePath);
   if (host.contains(tree)) return;
@@ -195,38 +205,76 @@ function renderTree(rows: OrderedFile[]): void {
   else host.prepend(tree);
 }
 
-function renderPathTree(nodes: PathTreeNode[]): HTMLOListElement {
+function fileChangeOf(path: string, changes: Map<string, FileChange>): FileChange {
+  return changes.get(path) || "edited";
+}
+
+function changeIcon(change: FileChange): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("pr-buddy-file-kind", `is-${change}`);
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", FILE_CHANGE_ICON[change]);
+  svg.append(path);
+  return svg;
+}
+
+function paintFileRow(a: HTMLElement, path: string, change: FileChange): void {
+  a.classList.remove("is-added", "is-deleted", "is-edited");
+  a.classList.add(`is-${change}`);
+  a.dataset.change = change;
+  a.title = `${path} · ${FILE_CHANGE_LABEL[change]}`;
+  const existing = a.querySelector(".pr-buddy-file-kind");
+  const icon = changeIcon(change);
+  if (existing) existing.replaceWith(icon);
+  else a.querySelector(".pr-buddy-file-n")?.insertAdjacentElement("afterend", icon);
+}
+
+function paintFileChanges(tree: Element, changes: Map<string, FileChange>): void {
+  for (const el of tree.querySelectorAll(".pr-buddy-file")) {
+    if (!(el instanceof HTMLElement)) continue;
+    const path = el.dataset.path || "";
+    if (!path) continue;
+    paintFileRow(el, path, fileChangeOf(path, changes));
+  }
+}
+
+function renderFileList(rows: OrderedFile[], changes: Map<string, FileChange>): HTMLOListElement {
   const list = document.createElement("ol");
   list.className = "pr-buddy-file-list";
-  for (const node of nodes) {
+  rows.forEach((file, i) => {
     const li = document.createElement("li");
-    if (node.kind === "dir") {
-      const dir = document.createElement("div");
-      dir.className = "pr-buddy-dir";
-      dir.textContent = node.name;
-      li.append(dir, renderPathTree(node.children));
-    } else {
-      const a = document.createElement("a");
-      a.className = "pr-buddy-file";
-      a.href = diffAnchor(node.path);
-      a.title = node.path;
-      a.dataset.path = node.path;
-      a.addEventListener("click", (ev) => {
-        ev.preventDefault();
-        setActiveTreePath(node.path, true);
-        goToDiff(node.path);
-      });
-      const n = document.createElement("span");
-      n.className = "pr-buddy-file-n";
-      n.textContent = String(node.index);
-      const name = document.createElement("span");
-      name.className = "pr-buddy-file-path";
-      name.textContent = node.name;
-      a.append(n, name);
-      li.append(a);
+    const a = document.createElement("a");
+    a.className = "pr-buddy-file";
+    a.href = diffAnchor(file.path);
+    a.dataset.path = file.path;
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      setActiveTreePath(file.path, true);
+      goToDiff(file.path);
+    });
+    const n = document.createElement("span");
+    n.className = "pr-buddy-file-n";
+    n.textContent = String(i + 1);
+    const label = fileRowLabel(file.path);
+    const text = document.createElement("span");
+    text.className = "pr-buddy-file-text";
+    const name = document.createElement("span");
+    name.className = "pr-buddy-file-path";
+    name.textContent = label.name;
+    text.append(name);
+    if (label.dir) {
+      const dir = document.createElement("span");
+      dir.className = "pr-buddy-file-dir";
+      dir.textContent = label.dir;
+      text.append(dir);
     }
+    a.append(n, text);
+    paintFileRow(a, file.path, fileChangeOf(file.path, changes));
+    li.append(a);
     list.append(li);
-  }
+  });
   return list;
 }
 
@@ -325,14 +373,16 @@ function findDiffCards(root: ParentNode, paths: string[]): Element[] {
 }
 
 function insertNote(card: Element, note: HTMLElement): void {
-  const table = card.querySelector("table[data-diff-anchor], table[aria-label^='Diff for']");
   const where = pickNoteInsert({
     hasHeaderWrapper: Boolean(card.querySelector("[data-diff-header-wrapper]")),
-    hasDiffTable: Boolean(table),
+    hasDiffTable: Boolean(card.querySelector("table[data-diff-anchor], table[aria-label^='Diff for']")),
   });
-  if (where === "inside-table-wrap" && table) {
-    (table.parentElement || table).prepend(note);
-    return;
+  if (where === "inside-table-wrap") {
+    const table = card.querySelector("table[data-diff-anchor], table[aria-label^='Diff for']");
+    if (table) {
+      (table.parentElement || table).prepend(note);
+      return;
+    }
   }
   if (where === "after-header-wrapper") {
     card.querySelector("[data-diff-header-wrapper]")?.insertAdjacentElement("afterend", note);
@@ -342,11 +392,29 @@ function insertNote(card: Element, note: HTMLElement): void {
 }
 
 function noteTitle(file: OrderedFile): string {
-  return file.group && file.group !== "Other" ? `Summary · ${file.group}` : "Summary";
+  return file.group && file.group !== "Other" ? file.group : "Review";
+}
+
+function fileIsViewed(card: Element): boolean {
+  for (const el of card.querySelectorAll("input[type='checkbox'], [role='checkbox']")) {
+    const label = `${el.getAttribute("aria-label") || ""} ${el.textContent || ""}`;
+    if (!/viewed/i.test(label)) continue;
+    if (el instanceof HTMLInputElement) return el.checked;
+    return el.getAttribute("aria-checked") === "true";
+  }
+  return false;
+}
+
+function fileIsCollapsed(card: Element): boolean {
+  if (card instanceof HTMLDetailsElement) return !card.open;
+  const inner = [...card.children].find((el) => el.localName === "details");
+  return inner instanceof HTMLDetailsElement ? !inner.open : false;
 }
 
 function setNoteOpen(note: HTMLElement, path: string, open: boolean): void {
   note.classList.toggle("is-closed", !open);
+  const chip = note.querySelector(".pr-buddy-file-note-chip");
+  if (chip) chip.setAttribute("aria-expanded", String(open));
   if (open) closedNotes.delete(path);
   else closedNotes.add(path);
 }
@@ -361,7 +429,28 @@ function attachFileNote(card: Element, file: OrderedFile): void {
     const label = existing.querySelector(".pr-buddy-file-note-title");
     if (body) body.textContent = text;
     if (label) label.textContent = noteTitle(file);
-    setNoteOpen(existing, file.path, !closedNotes.has(file.path));
+    const chipBtn = existing.querySelector(".pr-buddy-file-note-chip");
+    if (chipBtn && chipBtn.textContent !== "👀") {
+      chipBtn.textContent = "👀";
+      chipBtn.setAttribute("aria-label", "Buddy review");
+    }
+    if (!existing.querySelector(".pr-buddy-file-note-brand")) {
+      const brand = document.createElement("div");
+      brand.className = "pr-buddy-file-note-brand";
+      brand.textContent = "Buddy review";
+      existing.querySelector(".pr-buddy-file-note-card")?.prepend(brand);
+    }
+    const open = noteShouldBeOpen({
+      userClosed: closedNotes.has(file.path),
+      viewed: fileIsViewed(region),
+      collapsed: fileIsCollapsed(region),
+    });
+    if (existing.classList.contains("is-closed") === open) {
+      setNoteOpen(existing, file.path, open);
+    }
+    if (existing.parentElement !== region || region.firstElementChild !== existing) {
+      insertNote(region, existing);
+    }
     return;
   }
   const note = document.createElement("div");
@@ -370,17 +459,22 @@ function attachFileNote(card: Element, file: OrderedFile): void {
   const chip = document.createElement("button");
   chip.type = "button";
   chip.className = "pr-buddy-file-note-chip";
-  chip.textContent = "Summary";
+  chip.textContent = "👀";
+  chip.setAttribute("aria-label", "Buddy review");
+  chip.setAttribute("aria-expanded", "true");
   chip.addEventListener("click", (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    setNoteOpen(note, file.path, true);
+    setNoteOpen(note, file.path, note.classList.contains("is-closed"));
   });
   const cardEl = document.createElement("div");
   cardEl.className = "pr-buddy-file-note-card";
+  const brand = document.createElement("div");
+  brand.className = "pr-buddy-file-note-brand";
+  brand.textContent = "Buddy review";
   const bar = document.createElement("div");
   bar.className = "pr-buddy-file-note-bar";
-  const title = document.createElement("span");
+  const title = document.createElement("div");
   title.className = "pr-buddy-file-note-title";
   title.textContent = noteTitle(file);
   const close = document.createElement("button");
@@ -397,9 +491,17 @@ function attachFileNote(card: Element, file: OrderedFile): void {
   const body = document.createElement("div");
   body.className = "pr-buddy-file-note-body";
   body.textContent = text;
-  cardEl.append(bar, body);
+  cardEl.append(brand, bar, body);
   note.append(chip, cardEl);
-  setNoteOpen(note, file.path, !closedNotes.has(file.path));
+  setNoteOpen(
+    note,
+    file.path,
+    noteShouldBeOpen({
+      userClosed: closedNotes.has(file.path),
+      viewed: fileIsViewed(region),
+      collapsed: fileIsCollapsed(region),
+    }),
+  );
   insertNote(region, note);
 }
 
@@ -414,20 +516,39 @@ function renderDiffs(rows: OrderedFile[]): void {
     const path = pathOfDiffCard(el, paths);
     if (path && !byPath.has(path)) byPath.set(path, el);
   }
-  const parent =
-    document.querySelector(".js-diff-progressive-container") || document.querySelector("#files");
-  if (parent && !diffsOrdered) {
-    for (const file of rows) {
-      const el = byPath.get(file.path);
-      if (el) parent.append(el);
-    }
-    diffsOrdered = true;
-  }
+  reorderDiffCards(rows, byPath);
   for (const file of rows) {
     const el = byPath.get(file.path) || document.getElementById(diffAnchor(file.path).slice(1));
     if (el) attachFileNote(el, file);
   }
   watchVisibleFile([...byPath.values()]);
+}
+
+function reorderDiffCards(rows: OrderedFile[], byPath: Map<string, Element>): void {
+  const cards = [...byPath.values()];
+  if (cards.length < 2) return;
+  const parent = firstCommonAncestor(cards);
+  if (!parent || parent === document.body || parent === document.documentElement) return;
+  if (parent.id === "pr-buddy-tree" || parent.closest("#pr-buddy-tree")) return;
+  const hosts = new Map<string, Element>();
+  for (const [path, el] of byPath) {
+    const host = hostUnder(el, parent);
+    if (host) hosts.set(path, host);
+  }
+  const current = [...parent.children]
+    .map((child) => {
+      for (const [path, host] of hosts) {
+        if (host === child) return path;
+      }
+      return "";
+    })
+    .filter(Boolean);
+  const wanted = wantedDiffOrder([...hosts.keys()], orderedPaths(rows));
+  if (!diffsNeedReorder(current, wanted)) return;
+  for (const path of wanted) {
+    const host = hosts.get(path);
+    if (host) parent.append(host);
+  }
 }
 
 function mountPanel(): void {
@@ -480,11 +601,15 @@ async function toggleDialog(): Promise<void> {
   dialog.setAttribute("aria-label", "pr-buddy");
   const backends: Backend[] = ["claude", "grok", "mlx"];
   const field = document.createElement("fieldset");
+  field.className = "pr-buddy-models";
   const legend = document.createElement("legend");
   legend.textContent = "Model";
   field.append(legend);
+  const seg = document.createElement("div");
+  seg.className = "pr-buddy-seg";
   for (const id of backends) {
     const label = document.createElement("label");
+    label.className = "pr-buddy-seg-item";
     const input = document.createElement("input");
     input.type = "radio";
     input.name = "pr-buddy-backend";
@@ -495,9 +620,12 @@ async function toggleDialog(): Promise<void> {
         showMlx(dialog, id === "mlx");
       });
     });
-    label.append(input, ` ${id}`);
-    field.append(label);
+    const text = document.createElement("span");
+    text.textContent = id;
+    label.append(input, text);
+    seg.append(label);
   }
+  field.append(seg);
   const mlx = document.createElement("div");
   mlx.id = "pr-buddy-mlx";
   mlx.hidden = s.backend !== "mlx";
@@ -518,6 +646,7 @@ async function toggleDialog(): Promise<void> {
   mlx.append(url, model);
   const refresh = document.createElement("button");
   refresh.type = "button";
+  refresh.className = "pr-buddy-refresh";
   refresh.textContent = "Refresh order";
   refresh.addEventListener("click", (ev) => {
     ev.stopPropagation();

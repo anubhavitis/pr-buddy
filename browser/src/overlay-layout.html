@@ -1,0 +1,236 @@
+<!doctype html>
+<html data-color-mode="dark">
+<head>
+  <meta charset="utf-8" />
+  <title>pr-buddy overlay preview</title>
+  <link rel="stylesheet" href="../out/styles.css" />
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0d1117;
+      color: #e6edf3;
+      font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    }
+    .page { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 48px;
+      padding: 0 12px;
+      margin-bottom: 16px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #161b22;
+    }
+    .toolbar-label { color: #8b949e; font-size: 12px; }
+    .layout { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+    .sidebar {
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+      min-height: 360px;
+    }
+    .filter {
+      margin: 10px;
+      padding: 6px 8px;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #8b949e;
+      font-size: 12px;
+    }
+    .diff {
+      position: relative;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    [data-diff-header-wrapper] {
+      display: flex;
+      align-items: center;
+      min-height: 44px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #30363d;
+    }
+    .table-wrap { position: relative; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: #0d1117; }
+    td { padding: 2px 8px; font: 12px/1.5 ui-monospace, monospace; }
+    .add { background: #033a16; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 24px; }
+    .card {
+      position: relative;
+      min-height: 180px;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #161b22;
+    }
+    h2 { font-size: 12px; color: #8b949e; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 10px; }
+    html[data-color-mode="light"] body { background: #f6f8fa; color: #1f2328; }
+    html[data-color-mode="light"] .toolbar { background: #ffffff; border-color: #d0d7de; }
+    html[data-color-mode="light"] .toolbar-label,
+    html[data-color-mode="light"] h2 { color: #59636e; }
+    html[data-color-mode="light"] .sidebar,
+    html[data-color-mode="light"] .diff,
+    html[data-color-mode="light"] .card { background: #ffffff; border-color: #d0d7de; }
+    html[data-color-mode="light"] table { background: #ffffff; }
+    html[data-color-mode="light"] .add { background: #dafbe1; }
+    .states { display: flex; gap: 8px; margin: 0 0 16px; }
+    .states button {
+      border: 1px solid #30363d;
+      background: #161b22;
+      color: #e6edf3;
+      border-radius: 6px;
+      padding: 4px 10px;
+      cursor: pointer;
+      font: 12px inherit;
+    }
+    html[data-color-mode="light"] .states button {
+      border-color: #d0d7de;
+      background: #ffffff;
+      color: #1f2328;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="states">
+      <button type="button" id="theme">toggle light</button>
+      <button type="button" data-state="is-ok">ok</button>
+      <button type="button" data-state="is-busy">busy</button>
+      <button type="button" data-state="is-err">error</button>
+    </div>
+    <h2>Files toolbar</h2>
+    <div class="toolbar">
+      <span class="toolbar-label">All commits</span>
+      <div id="pr-buddy-dock">
+        <div id="pr-buddy-panel" class="pr-buddy-panel--toolbar is-ok">
+          <img class="pr-buddy-logo" src="../icons/icon32.png" width="16" height="16" alt="" />
+          <span class="pr-buddy-name">pr-buddy</span>
+          <span class="pr-buddy-sep" aria-hidden="true"></span>
+          <span id="pr-buddy-status">12 files</span>
+          <div id="pr-buddy-dialog" role="dialog" aria-label="pr-buddy">
+            <fieldset class="pr-buddy-models">
+              <legend>Model</legend>
+              <div class="pr-buddy-seg">
+                <label class="pr-buddy-seg-item"><input type="radio" name="m1" checked /><span>claude</span></label>
+                <label class="pr-buddy-seg-item"><input type="radio" name="m1" /><span>grok</span></label>
+                <label class="pr-buddy-seg-item"><input type="radio" name="m1" /><span>mlx</span></label>
+              </div>
+            </fieldset>
+            <button type="button" class="pr-buddy-refresh">Refresh order</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="sidebar">
+        <div class="filter">Filter files</div>
+        <div id="pr-buddy-tree">
+          <ol class="pr-buddy-file-list">
+            <li>
+              <a class="pr-buddy-file is-active is-edited" href="#diff-1" data-path="apps/web/lib/routing.ts" title="apps/web/lib/routing.ts · edited">
+                <span class="pr-buddy-file-n">1</span>
+                <svg class="pr-buddy-file-kind is-edited" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg>
+                <span class="pr-buddy-file-text">
+                  <span class="pr-buddy-file-path">routing.ts</span>
+                  <span class="pr-buddy-file-dir">apps/web/lib</span>
+                </span>
+              </a>
+            </li>
+            <li>
+              <a class="pr-buddy-file is-added" href="#diff-2" data-path="apps/web/lib/bare-id.ts" title="apps/web/lib/bare-id.ts · created">
+                <span class="pr-buddy-file-n">2</span>
+                <svg class="pr-buddy-file-kind is-added" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.75 1h10.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1Zm10.5 1.5H2.75a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 4a.75.75 0 0 1 .75.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5A.75.75 0 0 1 8 4Z"/></svg>
+                <span class="pr-buddy-file-text">
+                  <span class="pr-buddy-file-path">bare-id.ts</span>
+                  <span class="pr-buddy-file-dir">apps/web/lib</span>
+                </span>
+              </a>
+            </li>
+            <li>
+              <a class="pr-buddy-file is-deleted" href="#diff-3" title="layout.tsx · deleted">
+                <span class="pr-buddy-file-n">3</span>
+                <svg class="pr-buddy-file-kind is-deleted" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Zm8.5 6.25h-6.5a.75.75 0 0 1 0-1.5h6.5a.75.75 0 0 1 0 1.5Z"/></svg>
+                <span class="pr-buddy-file-text">
+                  <span class="pr-buddy-file-path">layout.tsx</span>
+                  <span class="pr-buddy-file-dir">apps/web/app/[locale]/(chrome)/[category]</span>
+                </span>
+              </a>
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="diff" id="diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4">
+        <div class="pr-buddy-file-note" data-path="apps/web/lib/routing.ts">
+          <button type="button" class="pr-buddy-file-note-chip" aria-label="Buddy review" aria-expanded="true">👀</button>
+          <div class="pr-buddy-file-note-card">
+            <div class="pr-buddy-file-note-brand">Buddy review</div>
+            <div class="pr-buddy-file-note-bar">
+              <div class="pr-buddy-file-note-title">Entry point</div>
+              <button type="button" class="pr-buddy-file-note-close" aria-label="Close summary">×</button>
+            </div>
+            <div class="pr-buddy-file-note-body">The chrome wrapper for the newly overloaded category segment. Read this before the route helpers.</div>
+          </div>
+        </div>
+        <div data-diff-header-wrapper="true">
+          <h3 style="margin:0;font-size:13px"><code>apps/web/lib/routing.ts</code></h3>
+        </div>
+        <div class="table-wrap">
+          <table aria-label="Diff for: apps/web/lib/routing.ts">
+            <tbody>
+              <tr><td>1</td><td>1</td><td>import { notFound } from "next/navigation";</td></tr>
+              <tr><td>2</td><td>2</td><td>import { getTranslations } from "next-intl/server";</td></tr>
+              <tr class="add"><td></td><td>4</td><td>+ import { parseBareIdSegment } from "@lib/routing/bare-id-path";</td></tr>
+              <tr><td>5</td><td>6</td><td>interface CategoryLayoutProps {</td></tr>
+              <tr><td>18</td><td></td><td>- if (!cat) {</td></tr>
+              <tr class="add"><td></td><td>24</td><td>+ if (!cat && !parseBareIdSegment(category)) {</td></tr>
+              <tr><td>25</td><td>26</td><td>  return children;</td></tr>
+              <tr><td>26</td><td>27</td><td>}</td></tr>
+              <tr><td>27</td><td>28</td><td></td></tr>
+              <tr><td>28</td><td>29</td><td>export function layoutOf(category: string) {</td></tr>
+              <tr class="add"><td></td><td>30</td><td>+  if (parseBareIdSegment(category)) return "id";</td></tr>
+              <tr><td>29</td><td>31</td><td>  return "slug";</td></tr>
+              <tr><td>30</td><td>32</td><td>}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <script>
+    const panel = document.getElementById("pr-buddy-panel");
+    const status = document.getElementById("pr-buddy-status");
+    document.getElementById("theme")?.addEventListener("click", () => {
+      const next = document.documentElement.dataset.colorMode === "dark" ? "light" : "dark";
+      document.documentElement.dataset.colorMode = next;
+      document.getElementById("theme").textContent = next === "dark" ? "toggle light" : "toggle dark";
+    });
+    document.querySelectorAll("[data-state]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        panel.classList.remove("is-ok", "is-busy", "is-err");
+        panel.classList.add(btn.getAttribute("data-state"));
+        status.textContent = btn.getAttribute("data-state") === "is-ok"
+          ? "12 files"
+          : btn.getAttribute("data-state") === "is-busy"
+            ? "ordering…"
+            : "host offline";
+      });
+    });
+    document.querySelectorAll(".pr-buddy-file-note").forEach((note) => {
+      note.querySelector(".pr-buddy-file-note-close")?.addEventListener("click", () => {
+        note.classList.add("is-closed");
+        note.querySelector(".pr-buddy-file-note-chip")?.setAttribute("aria-expanded", "false");
+      });
+      note.querySelector(".pr-buddy-file-note-chip")?.addEventListener("click", () => {
+        note.classList.remove("is-closed");
+        note.querySelector(".pr-buddy-file-note-chip")?.setAttribute("aria-expanded", "true");
+      });
+    });
+  </script>
+</body>
+</html>

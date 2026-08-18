@@ -30,7 +30,7 @@
     {
       "matches": ["https://github.com/*"],
       "js": ["out/content.js"],
-      "css": ["src/styles.css"],
+      "css": ["out/styles.css"],
       "run_at": "document_idle"
     }
   ],

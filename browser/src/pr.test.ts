@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isFilesTab, isFilesView, parseFilePaths, parseHeadSHA, parsePRURL, parseTitle } from "./pr";
+import {
+  cleanScrapedPath,
+  isFilesTab,
+  isFilesView,
+  parseFilePaths,
+  parseHeadSHA,
+  parsePRURL,
+  parseTitle,
+} from "./pr";
 
 const fixture = `
 <title>Eugene/release verify by ejahnGithub · Pull Request #11000 · cli/cli · GitHub</title>
@@ -49,6 +57,14 @@ test("parseHeadSHA prefers sha2 from the compare toc", () => {
 
 test("parseTitle uses the issue title", () => {
   assert.equal(parseTitle(fixture), "Eugene/release verify");
+});
+
+test("cleanScrapedPath strips GitHub comment counts glued to the name", () => {
+  assert.equal(cleanScrapedPath("market-lookup-api.md2"), "market-lookup-api.md");
+  assert.equal(cleanScrapedPath("docs/market-lookup-api.md 2"), "docs/market-lookup-api.md");
+  assert.equal(cleanScrapedPath("foo.test.ts12"), "foo.test.ts");
+  assert.equal(cleanScrapedPath("readme"), "readme");
+  assert.equal(cleanScrapedPath("clip.mp3"), "clip.mp3");
 });
 
 test("parseFilePaths unions tree and diff attributes, unique, stable", () => {

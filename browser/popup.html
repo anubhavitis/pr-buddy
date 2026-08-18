@@ -2,109 +2,49 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <style>
-      :root {
-        color-scheme: light dark;
-        --bg: #ffffff;
-        --fg: #1f2328;
-        --muted: #59636e;
-        --border: #d0d7de;
-        --accent: #0969da;
-        --ok: #1a7f37;
-        --bad: #cf222e;
-        --input: #f6f8fa;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --bg: #0d1117;
-          --fg: #e6edf3;
-          --muted: #8b949e;
-          --border: #30363d;
-          --accent: #58a6ff;
-          --ok: #3fb950;
-          --bad: #f85149;
-          --input: #161b22;
-        }
-      }
-      body {
-        font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        margin: 0;
-        padding: 12px;
-        width: 280px;
-        background: var(--bg);
-        color: var(--fg);
-      }
-      h1 {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        margin: 0 0 10px;
-      }
-      h1 img {
-        width: 18px;
-        height: 18px;
-        border-radius: 4px;
-      }
-      p {
-        margin: 0 0 8px;
-        color: var(--muted);
-      }
-      label {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        color: var(--fg);
-      }
-      select,
-      input,
-      button {
-        font: inherit;
-        color: var(--fg);
-        background: var(--input);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 4px 8px;
-      }
-      button {
-        width: 100%;
-        cursor: pointer;
-        margin-top: 4px;
-      }
-      button:hover {
-        border-color: var(--accent);
-      }
-      .ok { color: var(--ok); }
-      .bad { color: var(--bad); }
-      #mlx-fields input {
-        width: 100%;
-        box-sizing: border-box;
-        margin-bottom: 6px;
-      }
-    </style>
+    <link rel="stylesheet" href="out/popup.css" />
   </head>
-  <body>
-    <h1>
-      <img src="icons/icon32.png" alt="" />
+  <body class="m-0 w-[280px] bg-paper p-3.5 font-sans text-[13px] leading-snug text-ink dark:bg-[#1a1410] dark:text-[#f6ede3]">
+    <h1 class="mb-3 mt-0 flex items-center gap-2 text-[13px] font-semibold tracking-tight">
+      <img src="icons/icon32.png" alt="" class="h-[18px] w-[18px] rounded-[5px] ring-1 ring-owl/40" />
       pr-buddy
     </h1>
-    <p id="page">checking page…</p>
-    <p id="host">checking host…</p>
-    <p>
-      <label>backend
-        <select id="backend">
+    <p id="page" class="mb-2 mt-0 text-[12px] text-ink/60 dark:text-[#f6ede3]/60">checking page…</p>
+    <p id="host" class="mb-3 mt-0 text-[12px]">checking host…</p>
+    <p class="mb-2 mt-0">
+      <label class="flex items-center justify-between gap-2">
+        <span class="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/55 dark:text-[#f6ede3]/55">backend</span>
+        <select
+          id="backend"
+          class="rounded-lg border border-owl/30 bg-white px-2 py-1 text-[12px] text-ink transition hover:border-owl focus:border-owl focus:outline-none focus:ring-2 focus:ring-owl/25 dark:bg-[#2a1c12] dark:text-[#f6ede3]"
+        >
           <option value="claude">claude</option>
           <option value="grok">grok</option>
           <option value="mlx">mlx</option>
         </select>
       </label>
     </p>
-    <p id="mlx-fields" hidden>
-      <input id="mlx-url" type="text" placeholder="http://127.0.0.1:8080/v1" />
-      <input id="mlx-model" type="text" placeholder="model id" />
+    <p id="mlx-fields" class="mb-2 mt-0 grid gap-1.5" hidden>
+      <input
+        id="mlx-url"
+        type="text"
+        placeholder="http://127.0.0.1:8080/v1"
+        class="box-border w-full rounded-lg border border-owl/30 bg-white px-2 py-1.5 text-[12px] text-ink transition focus:border-owl focus:outline-none focus:ring-2 focus:ring-owl/25 dark:bg-[#2a1c12] dark:text-[#f6ede3]"
+      />
+      <input
+        id="mlx-model"
+        type="text"
+        placeholder="model id"
+        class="box-border w-full rounded-lg border border-owl/30 bg-white px-2 py-1.5 text-[12px] text-ink transition focus:border-owl focus:outline-none focus:ring-2 focus:ring-owl/25 dark:bg-[#2a1c12] dark:text-[#f6ede3]"
+      />
     </p>
-    <button type="button" id="reload">reload this tab</button>
+    <button
+      type="button"
+      id="reload"
+      class="mt-1 w-full cursor-pointer rounded-lg bg-owl px-2 py-1.5 text-[12px] font-semibold text-paper shadow-[0_6px_14px_color-mix(in_srgb,var(--color-owl)_32%,transparent)] transition hover:-translate-y-px hover:bg-owl-bright active:translate-y-0 active:scale-[0.98]"
+    >
+      reload this tab
+    </button>
     <script src="out/popup.js"></script>
   </body>
 </html>

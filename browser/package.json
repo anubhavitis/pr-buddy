@@ -3,13 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "compile": "esbuild src/content.ts src/background.ts src/popup.ts --bundle --outdir=out --format=iife --target=es2022",
+    "css": "tailwindcss -i src/styles.css -o out/styles.css && tailwindcss -i src/popup.css -o out/popup.css",
+    "compile": "npm run css && esbuild src/content.ts src/background.ts src/popup.ts --bundle --outdir=out --format=iife --target=es2022",
     "test": "tsc -p ./ --noEmit && tsx --test src/*.test.ts"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@types/chrome": "^0.0.287",
     "@types/node": "^20.11.0",
     "esbuild": "^0.25.0",
+    "tailwindcss": "^4.3.3",
     "tsx": "^4.19.0",
     "typescript": "^5.4.0"
   }

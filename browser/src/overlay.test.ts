@@ -15,6 +15,11 @@ import {
   isToolbarCompanionLabel,
   orderedPaths,
   pathsFromTreeItems,
+  changeFromHint,
+  fileEntriesFromTreeItems,
+  fileRowLabel,
+  wantedDiffOrder,
+  diffsNeedReorder,
   pathForDiffFragment,
   pathsToTree,
   sha256Hex,
@@ -23,6 +28,7 @@ import {
   currentNotePath,
   diffAnchor,
   fileNoteCopy,
+  noteShouldBeOpen,
   isDiffRegionId,
   pathFromVisibleLabel,
   pickNoteInsert,
@@ -164,6 +170,21 @@ test("orderedPaths is a flat review list with no copy", () => {
   assert.deepEqual(orderedPaths(rows), ["b.go", "a.go", "z.go"]);
 });
 
+test("diffsNeedReorder compares loaded cards against review order", () => {
+  assert.deepEqual(wantedDiffOrder(["c.ts", "a.ts"], ["a.ts", "b.ts", "c.ts"]), ["a.ts", "c.ts"]);
+  assert.equal(diffsNeedReorder(["c.ts", "a.ts"], ["a.ts", "c.ts"]), true);
+  assert.equal(diffsNeedReorder(["a.ts", "c.ts"], ["a.ts", "c.ts"]), false);
+  assert.equal(diffsNeedReorder(["a.ts"], ["a.ts"]), false);
+});
+
+test("fileRowLabel splits basename from parent path", () => {
+  assert.deepEqual(fileRowLabel("apps/web/lib/outcome/a.ts"), {
+    name: "a.ts",
+    dir: "apps/web/lib/outcome",
+  });
+  assert.deepEqual(fileRowLabel("readme.md"), { name: "readme.md", dir: "" });
+});
+
 test("pathsToTree nests by folder and keeps review numbers", () => {
   const tree = pathsToTree([
     "apps/web/lib/outcome/a.ts",
@@ -227,6 +248,13 @@ test("diffAnchor is GitHub's #diff- plus sha256 of the path", () => {
   );
 });
 
+test("noteShouldBeOpen defaults open unless closed, viewed, or collapsed", () => {
+  assert.equal(noteShouldBeOpen({ userClosed: false, viewed: false, collapsed: false }), true);
+  assert.equal(noteShouldBeOpen({ userClosed: true, viewed: false, collapsed: false }), false);
+  assert.equal(noteShouldBeOpen({ userClosed: false, viewed: true, collapsed: false }), false);
+  assert.equal(noteShouldBeOpen({ userClosed: false, viewed: false, collapsed: true }), false);
+});
+
 test("file notes resolve the current /changes file and fall back to group summary", () => {
   const path = "apps/web/app/[locale]/(chrome)/[category]/layout.tsx";
   assert.equal(fileNoteCopy({ blurb: "entry", groupSummary: "types" }), "entry");
@@ -242,9 +270,9 @@ test("file notes resolve the current /changes file and fall back to group summar
   );
   assert.equal(isDiffRegionId("diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4"), true);
   assert.equal(isDiffRegionId("heading-_R_4amal9s5_"), false);
-  assert.equal(pickNoteInsert({ hasHeaderWrapper: true, hasDiffTable: true }), "inside-table-wrap");
-  assert.equal(pickNoteInsert({ hasHeaderWrapper: false, hasDiffTable: true }), "inside-table-wrap");
-  assert.equal(pickNoteInsert({ hasHeaderWrapper: true, hasDiffTable: false }), "after-header-wrapper");
+  assert.equal(pickNoteInsert({ hasHeaderWrapper: true, hasDiffTable: true }), "prepend");
+  assert.equal(pickNoteInsert({ hasHeaderWrapper: false, hasDiffTable: true }), "prepend");
+  assert.equal(pickNoteInsert({ hasHeaderWrapper: true, hasDiffTable: false }), "prepend");
 });
 
 test("isFileFilterField matches old and new Files panes", () => {
@@ -252,6 +280,36 @@ test("isFileFilterField matches old and new Files panes", () => {
   assert.equal(isFileFilterField("", "Filter files"), true);
   assert.equal(isFileFilterField("Filter changed files", ""), true);
   assert.equal(isFileFilterField("Search issues", ""), false);
+});
+
+test("changeFromHint reads GitHub added/deleted/edited markers", () => {
+  assert.equal(changeFromHint("octicon-diff-added"), "added");
+  assert.equal(changeFromHint("New file"), "added");
+  assert.equal(changeFromHint("aria-label=added"), "added");
+  assert.equal(changeFromHint("data-file-status=added"), "added");
+  assert.equal(changeFromHint("octicon-diff-removed"), "deleted");
+  assert.equal(changeFromHint("Deleted file"), "deleted");
+  assert.equal(changeFromHint("data-file-deleted=true"), "deleted");
+  assert.equal(changeFromHint("octicon-diff-modified"), "edited");
+  assert.equal(changeFromHint("Renamed from foo.ts"), "edited");
+  assert.equal(changeFromHint("outcome.ts"), "");
+  assert.equal(changeFromHint("12 additions & 3 deletions"), "");
+});
+
+test("fileEntriesFromTreeItems keep per-file change next to the path", () => {
+  assert.deepEqual(
+    fileEntriesFromTreeItems([
+      { level: 1, name: "apps/web", kind: "directory", change: "" },
+      { level: 2, name: "a.ts", kind: "file", change: "added" },
+      { level: 2, name: "b.ts", kind: "file", change: "deleted" },
+      { level: 2, name: "c.ts", kind: "file", change: "" },
+    ]),
+    [
+      { path: "apps/web/a.ts", change: "added" },
+      { path: "apps/web/b.ts", change: "deleted" },
+      { path: "apps/web/c.ts", change: "" },
+    ],
+  );
 });
 
 test("pathsFromTreeItems rebuilds full paths from aria levels", () => {

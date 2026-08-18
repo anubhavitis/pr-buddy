@@ -1,4 +1,5 @@
 import type { OrderedFile } from "./guide";
+import { cleanScrapedPath } from "./pr";
 
 export type OverlayGroup = {
   name: string;
@@ -8,6 +9,40 @@ export type OverlayGroup = {
 
 export function orderedPaths(rows: OrderedFile[]): string[] {
   return rows.map((row) => row.path);
+}
+
+export function wantedDiffOrder(have: string[], review: string[]): string[] {
+  const present = new Set(have);
+  return review.filter((path) => present.has(path));
+}
+
+export function diffsNeedReorder(current: string[], wanted: string[]): boolean {
+  if (wanted.length < 2) return false;
+  if (current.length !== wanted.length) return true;
+  return current.some((path, i) => path !== wanted[i]);
+}
+
+export function hostUnder(el: Element, ancestor: Element): Element | null {
+  let cur: Element | null = el;
+  while (cur && cur.parentElement !== ancestor) cur = cur.parentElement;
+  return cur && cur.parentElement === ancestor ? cur : null;
+}
+
+export function firstCommonAncestor(els: Element[]): Element | null {
+  if (els.length === 0) return null;
+  let ancestor = els[0].parentElement;
+  while (ancestor) {
+    if (els.every((el) => ancestor!.contains(el) && el !== ancestor)) return ancestor;
+    ancestor = ancestor.parentElement;
+  }
+  return null;
+}
+
+export function fileRowLabel(path: string): { name: string; dir: string } {
+  const parts = cleanScrapedPath(path).split("/").filter(Boolean);
+  if (parts.length === 0) return { name: path, dir: "" };
+  const name = parts[parts.length - 1];
+  return { name, dir: parts.slice(0, -1).join("/") };
 }
 
 export function sha256Hex(text: string): string {
@@ -30,8 +65,17 @@ export function fileNoteCopy(file: { blurb: string; groupSummary: string }): str
   return (file.blurb || file.groupSummary).trim();
 }
 
+export function noteShouldBeOpen(opts: {
+  userClosed: boolean;
+  viewed: boolean;
+  collapsed: boolean;
+}): boolean {
+  if (opts.userClosed || opts.viewed || opts.collapsed) return false;
+  return true;
+}
+
 export function pathFromVisibleLabel(label: string, known: string[]): string {
-  const t = label.replace(/\s+/g, " ").trim();
+  const t = cleanScrapedPath(label.replace(/\s+/g, " ").trim());
   if (!t) return "";
   const exact = known.find((p) => p === t || t.endsWith(p) || t.endsWith(p.split("/").pop() || p));
   if (exact) return exact;
@@ -52,12 +96,10 @@ export function isDiffRegionId(id: string): boolean {
   return /^diff-[a-f0-9]{64}$/i.test(id);
 }
 
-export function pickNoteInsert(card: {
+export function pickNoteInsert(_card: {
   hasHeaderWrapper: boolean;
   hasDiffTable: boolean;
 }): "inside-table-wrap" | "after-header-wrapper" | "prepend" {
-  if (card.hasDiffTable) return "inside-table-wrap";
-  if (card.hasHeaderWrapper) return "after-header-wrapper";
   return "prepend";
 }
 
@@ -292,15 +334,54 @@ export function commitsDockAction(parent: {
   return "walk";
 }
 
+export type FileChange = "added" | "deleted" | "edited";
+
 export type TreeItem = {
   level: number;
   name: string;
   kind: "file" | "directory";
+  change?: FileChange | "";
 };
 
-export function pathsFromTreeItems(items: TreeItem[]): string[] {
+export const FILE_CHANGE_ICON: Record<FileChange, string> = {
+  added:
+    "M2.75 1h10.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1Zm10.5 1.5H2.75a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 4a.75.75 0 0 1 .75.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5A.75.75 0 0 1 8 4Z",
+  deleted:
+    "M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Zm8.5 6.25h-6.5a.75.75 0 0 1 0-1.5h6.5a.75.75 0 0 1 0 1.5Z",
+  edited:
+    "M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z",
+};
+
+export const FILE_CHANGE_LABEL: Record<FileChange, string> = {
+  added: "created",
+  deleted: "deleted",
+  edited: "edited",
+};
+
+export function changeFromHint(raw: string): FileChange | "" {
+  const t = raw.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!t) return "";
+  if (/\b(data-file-deleted|file-deleted|deleted file|diff-removed|octicon-diff-removed)\b/.test(t)) {
+    return "deleted";
+  }
+  if (/\bstatus[=:"'\s]+removed\b/.test(t)) return "deleted";
+  if (/\b(new file|diff-added|octicon-diff-added|file-added)\b/.test(t)) return "added";
+  if (/\bstatus[=:"'\s]+added\b/.test(t) || /\baria-label[=:"'\s]+added\b/.test(t)) return "added";
+  if (/\b(diff-modified|octicon-diff-modified|diff-renamed|renamed from)\b/.test(t)) return "edited";
+  if (/\bstatus[=:"'\s]+(modified|renamed|changed)\b/.test(t)) return "edited";
+  if (/\b(color-fg-danger|fgcolor-danger)\b/.test(t) && !/\b(color-fg-success|fgcolor-success)\b/.test(t)) {
+    return "deleted";
+  }
+  if (/\b(color-fg-success|fgcolor-success)\b/.test(t)) return "added";
+  if (t === "added") return "added";
+  if (t === "removed" || t === "deleted") return "deleted";
+  if (t === "modified" || t === "renamed" || t === "changed") return "edited";
+  return "";
+}
+
+export function fileEntriesFromTreeItems(items: TreeItem[]): { path: string; change: FileChange | "" }[] {
   const stack: string[] = [];
-  const files: string[] = [];
+  const files: { path: string; change: FileChange | "" }[] = [];
   const seen = new Set<string>();
   for (const item of items) {
     const name = item.name.trim().replace(/\/$/, "");
@@ -314,9 +395,65 @@ export function pathsFromTreeItems(items: TreeItem[]): string[] {
     const path = name.includes("/") ? name : [...stack, name].join("/");
     if (!path || seen.has(path)) continue;
     seen.add(path);
-    files.push(path);
+    files.push({ path, change: item.change || "" });
   }
   return files;
+}
+
+export function pathsFromTreeItems(items: TreeItem[]): string[] {
+  return fileEntriesFromTreeItems(items).map((e) => e.path);
+}
+
+export function changeFromElement(el: Element): FileChange | "" {
+  const clone = el.cloneNode(true) as Element;
+  clone.querySelectorAll("[role='treeitem'], [role='group'], ul, ol").forEach((child) => {
+    if (child !== clone) child.remove();
+  });
+  const bits: string[] = [
+    clone.getAttribute("data-file-deleted") === "true" ? "data-file-deleted" : "",
+    clone.getAttribute("data-file-status") || "",
+    clone.getAttribute("data-status") || "",
+    clone.getAttribute("data-diff-type") || "",
+    clone.getAttribute("aria-label") || "",
+    clone.getAttribute("title") || "",
+    typeof clone.className === "string" ? clone.className : "",
+  ];
+  for (const node of clone.querySelectorAll("[class], [aria-label], [title], svg")) {
+    bits.push(
+      node.getAttribute("data-file-deleted") === "true" ? "data-file-deleted" : "",
+      node.getAttribute("data-file-status") || "",
+      node.getAttribute("aria-label") || "",
+      node.getAttribute("title") || "",
+      node.getAttribute("class") || "",
+    );
+  }
+  const header = clone.querySelector("[data-diff-header-wrapper], .file-header")?.textContent || "";
+  bits.push(header);
+  return changeFromHint(bits.filter(Boolean).join(" "));
+}
+
+export function collectFileChanges(root: ParentNode, paths: string[]): Map<string, FileChange> {
+  const allowed = new Set(paths);
+  const out = new Map<string, FileChange>();
+  const set = (path: string, change: FileChange | "") => {
+    const p = path.trim().replace(/^\.\//, "");
+    if (!p || !change || !allowed.has(p) || out.has(p)) return;
+    out.set(p, change);
+  };
+  for (const entry of fileEntriesFromTreeItems(readTreeItems(root))) {
+    set(entry.path, entry.change);
+  }
+  for (const el of root.querySelectorAll("[data-file-path], [data-tagsearch-path], [data-path]")) {
+    if (el.closest("#pr-buddy-tree, #pr-buddy-panel, #pr-buddy-dialog")) continue;
+    const path = cleanScrapedPath(
+      el.getAttribute("data-file-path") ||
+        el.getAttribute("data-tagsearch-path") ||
+        el.getAttribute("data-path") ||
+        "",
+    );
+    set(path, changeFromElement(el));
+  }
+  return out;
 }
 
 export function findFileTreeHost(root: ParentNode): Element | null {
@@ -357,15 +494,15 @@ export function readTreeItems(root: ParentNode): TreeItem[] {
     const expanded = el.getAttribute("aria-expanded");
     const kind: TreeItem["kind"] =
       type === "directory" || (type !== "file" && expanded != null) ? "directory" : "file";
-    const name = (
+    const name = cleanScrapedPath(
       el.getAttribute("data-path") ||
-      el.getAttribute("data-file-path") ||
-      el.querySelector("[data-filterable-item-text]")?.textContent ||
-      visibleTreeLabel(el)
-    ).trim();
+        el.getAttribute("data-file-path") ||
+        el.querySelector("[data-filterable-item-text]")?.textContent ||
+        visibleTreeLabel(el),
+    );
     if (!name) continue;
     const level = Number(el.getAttribute("aria-level") || "") || inferTreeLevel(el);
-    items.push({ level: level || 1, name, kind });
+    items.push({ level: level || 1, name, kind, change: kind === "file" ? changeFromElement(el) : "" });
   }
   return items;
 }
@@ -375,6 +512,9 @@ function visibleTreeLabel(el: Element): string {
   clone.querySelectorAll("[role='treeitem'], [role='group'], ul, ol").forEach((child) => {
     if (child !== clone) child.remove();
   });
+  clone
+    .querySelectorAll("[class*='Counter' i], [class*='counter'], [data-testid*='comment' i]")
+    .forEach((child) => child.remove());
   return (clone.textContent || "").replace(/\s+/g, " ").trim();
 }
 

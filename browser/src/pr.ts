@@ -54,11 +54,30 @@ export function findHeadSHAFromDOM(root: ParentNode): string {
   return "";
 }
 
+const codeExt =
+  /\.(?:test|spec|d|min|module)\.[A-Za-z]+$|\.(?:mdx?|txt|rst|tsx?|jsx?|mjs|cjs|cts|mts|go|py|rb|rs|java|kt|swift|cc?|hh?|cpp|hpp|css|scss|less|json|ya?ml|toml|xml|html?|svg|vue|svelte|php|sql|sh|bash|graphql|proto|lock|snap)$/i;
+
+function stripCommentBadge(name: string): string {
+  const spaced = name.replace(/\s+\d+$/, "");
+  const m = spaced.match(/^(.*?)(\d{1,3})$/);
+  if (m && codeExt.test(m[1])) return m[1];
+  return spaced;
+}
+
+export function cleanScrapedPath(raw: string): string {
+  const t = raw.replace(/\s+/g, " ").trim().replace(/^\.\//, "");
+  if (!t) return "";
+  const parts = t.split("/").filter(Boolean);
+  if (parts.length === 0) return "";
+  parts[parts.length - 1] = stripCommentBadge(parts[parts.length - 1]);
+  return parts.join("/");
+}
+
 export function collectFilePathsFromDOM(root: ParentNode): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const add = (raw: string) => {
-    const path = decodeEntities(raw).trim().replace(/^\.\//, "");
+    const path = cleanScrapedPath(decodeEntities(raw));
     if (!path || path.includes(" ") || path.includes("\n") || seen.has(path)) return;
     if (path.length > 512) return;
     seen.add(path);
@@ -94,7 +113,7 @@ export function parseFilePaths(html: string): string[] {
   ];
   for (const re of patterns) {
     for (const m of html.matchAll(re)) {
-      const path = decodeEntities(m[1]).trim();
+      const path = cleanScrapedPath(decodeEntities(m[1]));
       if (!path || path.includes(" ") || seen.has(path)) continue;
       seen.add(path);
       out.push(path);
