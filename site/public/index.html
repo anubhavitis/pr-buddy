@@ -183,26 +183,40 @@
       .demo.done .sortlabel .dot {
         background: var(--add);
       }
+      /* A hairline that runs the length of the hold, so the demo reads as
+         something live even in the seconds when nothing is moving. */
+      .cycle {
+        height: 1.5px;
+        background: var(--add);
+        width: 0;
+        opacity: 0;
+      }
+      .demo.running .cycle {
+        width: 100%;
+        opacity: 0.55;
+        transition: width 3.2s linear, opacity 0.3s ease;
+      }
       .rows {
         position: relative;
-        padding: 8px 0;
+        padding: 6px 0;
       }
       .row {
         display: grid;
-        grid-template-columns: 20px 1fr;
+        grid-template-columns: 18px 1fr;
         gap: 10px;
         align-items: baseline;
-        padding: 5px 14px;
+        padding: 4px 14px;
         font-family: var(--mono);
         font-size: 12.5px;
-        line-height: 1.45;
+        line-height: 1.5;
         transition: transform 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
         will-change: transform;
       }
       .row .g {
         color: var(--muted);
         text-align: right;
-        font-size: 11px;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
       }
       .row .p {
         color: var(--ink);
@@ -210,40 +224,51 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      /* The blurb is the second idea, so it waits to be asked for. Keeping it
+         always-on tripled the height and buried the reorder. */
       .row .b {
         display: block;
         color: var(--muted);
         font-family: var(--sans);
-        font-size: 12px;
-        line-height: 1.45;
+        font-size: 11.5px;
+        line-height: 1.4;
         max-height: 0;
         opacity: 0;
         overflow: hidden;
-        transition: max-height 0.5s ease, opacity 0.4s ease, margin 0.5s ease;
+        transition: max-height 0.34s ease, opacity 0.28s ease, margin 0.34s ease;
       }
-      .demo.done .row .b {
-        max-height: 3.2em;
+      .demo.done .row:hover .b,
+      .demo.done .row:focus-within .b {
+        max-height: 3em;
         opacity: 1;
-        margin-top: 2px;
+        margin-top: 1px;
+      }
+      .row:hover .p,
+      .row:focus-within .p {
+        color: var(--add);
       }
       /* Group headers are absent until there is a grouping to announce. */
       .ghead {
-        padding: 12px 14px 4px;
+        padding: 9px 14px 2px;
         font-family: var(--mono);
-        font-size: 10.5px;
+        font-size: 10px;
         letter-spacing: 0.11em;
         text-transform: uppercase;
         color: var(--add);
         max-height: 0;
         opacity: 0;
         overflow: hidden;
-        transition: max-height 0.5s ease, opacity 0.45s ease;
+        transition: max-height 0.45s ease, opacity 0.4s ease;
       }
       .demo.done .ghead {
-        max-height: 4em;
+        max-height: 3em;
         opacity: 1;
       }
       .demo-note {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 8px;
         margin: 0 0 46px;
         font-family: var(--mono);
         font-size: 11.5px;
@@ -447,10 +472,11 @@
           <b>pr-buddy</b> <span>#412</span>
           <span class="sortlabel"><span class="dot"></span><span id="sortmode">sorted A to Z</span></span>
         </div>
+        <div class="cycle" id="cycle"></div>
         <div class="rows" id="rows"></div>
       </div>
       <p class="demo-note">
-        10 files from this repository.
+        <span>Real files from this repository. Hover a row for its blurb.</span>
         <button type="button" id="replay">replay</button>
       </p>
 
@@ -643,24 +669,26 @@
       // Ten real files from this repository. `az` is GitHub's order; `ordered`
       // is the sequence prompt.ts asks the model for: contracts, then
       // entrypoints, implementation, wiring, tests.
+      // Six real files from this repository. Six is enough to show grouping
+      // and still fit both the before and after state on one screen.
       const FILES = [
-        { p: "browser/src/background.ts", g: "Wiring",         b: "Service worker. The only place that fetches the host." },
-        { p: "browser/src/content.ts",    g: "Wiring",         b: "Scrapes the Files tab, then applies the returned order." },
-        { p: "browser/src/guide.test.ts", g: "Tests",          b: "Covers malformed model output and missing groups." },
-        { p: "browser/src/guide.ts",      g: "Contracts",      b: "The Guide type. Read this first: everything downstream is shaped by it." },
-        { p: "browser/src/prompt.ts",     g: "Contracts",      b: "Builds the prompt. Defines exactly what crosses the wire." },
-        { p: "cmd/pr-buddy-host/main.go", g: "Entrypoints",    b: "Binds loopback and refuses anything else." },
-        { p: "internal/exec/fake.go",     g: "Tests",          b: "Records calls so no test ever shells out for real." },
-        { p: "internal/exec/runner.go",   g: "Contracts",      b: "The single boundary through which anything shells out." },
-        { p: "internal/host/host.go",     g: "Implementation", b: "Dispatches to claude, grok, or mlx. All print-only." },
-        { p: "internal/host/server.go",   g: "Implementation", b: "Serves /health and /complete." },
+        { p: "browser/src/background.ts", g: "Wiring",     b: "Service worker. The only place that fetches the host." },
+        { p: "browser/src/guide.test.ts", g: "Wiring",     b: "Covers malformed model output and missing groups." },
+        { p: "browser/src/guide.ts",      g: "Contracts",  b: "The Guide type. Everything downstream is shaped by it." },
+        { p: "browser/src/prompt.ts",     g: "Contracts",  b: "Builds the prompt. Defines what crosses the wire." },
+        { p: "cmd/pr-buddy-host/main.go", g: "Then the host", b: "Binds loopback and refuses anything else." },
+        { p: "internal/host/host.go",     g: "Then the host", b: "Dispatches to claude, grok, or mlx. All print-only." },
       ];
-      const GROUPS = ["Contracts", "Entrypoints", "Implementation", "Wiring", "Tests"];
+      const GROUPS = ["Contracts", "Then the host", "Wiring"];
+
+      const HOLD_AZ = 1000;   // let the alphabetical state register first
+      const HOLD_SORTED = 3200; // matches the .cycle transition duration
 
       const rowsEl = document.getElementById("rows");
       const demoEl = document.getElementById("demo");
       const modeEl = document.getElementById("sortmode");
       const replayEl = document.getElementById("replay");
+      const cycleEl = document.getElementById("cycle");
       const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
 
       const az = [...FILES].sort((a, b) => a.p.localeCompare(b.p));
@@ -669,26 +697,29 @@
         for (const f of FILES) if (f.g === g) ordered.push(f);
       }
 
-      // Build once in alphabetical order, then move rows by transform so the
-      // reorder reads as one motion rather than a re-render.
       const nodes = new Map();
+      let timer = null;
+      let visible = false;
+      let hovered = false;
+
       function build() {
         rowsEl.textContent = "";
         nodes.clear();
         az.forEach((f, i) => {
           const row = document.createElement("div");
           row.className = "row";
+          row.tabIndex = 0;
           const g = document.createElement("span");
           g.className = "g";
           g.textContent = String(i + 1).padStart(2, "0");
           const wrap = document.createElement("span");
-          const p = document.createElement("span");
-          p.className = "p";
-          p.textContent = f.p;
-          const b = document.createElement("span");
-          b.className = "b";
-          b.textContent = f.b;
-          wrap.append(p, b);
+          const path = document.createElement("span");
+          path.className = "p";
+          path.textContent = f.p;
+          const blurb = document.createElement("span");
+          blurb.className = "b";
+          blurb.textContent = f.b;
+          wrap.append(path, blurb);
           row.append(g, wrap);
           rowsEl.append(row);
           nodes.set(f.p, row);
@@ -745,32 +776,77 @@
         });
       }
 
-      function run() {
-        demoEl.classList.remove("done");
+      function stop() {
+        clearTimeout(timer);
+        timer = null;
+      }
+
+      // One pass: alphabetical, reorder, hold, reset. The reset is deliberately
+      // unanimated so it never reads as a second, competing motion.
+      function pass() {
+        stop();
+        demoEl.classList.remove("done", "running");
         modeEl.textContent = "sorted A to Z";
         build();
         if (reduced.matches) {
           reorder();
           return;
         }
-        setTimeout(reorder, 1100);
+        timer = setTimeout(function () {
+          reorder();
+          // Start the hold bar on the next frame so the width transition runs.
+          requestAnimationFrame(function () {
+            demoEl.classList.add("running");
+          });
+          timer = setTimeout(loop, HOLD_SORTED);
+        }, HOLD_AZ);
       }
 
-      replayEl.addEventListener("click", run);
+      function loop() {
+        if (!visible || hovered || reduced.matches) {
+          timer = null;
+          return;
+        }
+        pass();
+      }
 
-      // Hold the reorder until it is on screen, so the one moment the page has
-      // is not spent before anyone is looking.
+      // Pause on hover so reading a blurb is never interrupted by a reset.
+      demoEl.addEventListener("pointerenter", function () {
+        hovered = true;
+        stop();
+        demoEl.classList.remove("running");
+      });
+      demoEl.addEventListener("pointerleave", function () {
+        hovered = false;
+        if (visible && !reduced.matches && !timer) timer = setTimeout(loop, 900);
+      });
+      demoEl.addEventListener("focusin", function () {
+        hovered = true;
+        stop();
+        demoEl.classList.remove("running");
+      });
+      demoEl.addEventListener("focusout", function () {
+        if (demoEl.contains(document.activeElement)) return;
+        hovered = false;
+        if (visible && !reduced.matches && !timer) timer = setTimeout(loop, 900);
+      });
+
+      replayEl.addEventListener("click", pass);
+
+      // Only run while on screen. A loop nobody is looking at is just battery.
       build();
       const io = new IntersectionObserver(
         function (entries) {
           for (const e of entries) {
-            if (e.isIntersecting) {
-              io.disconnect();
-              run();
+            visible = e.isIntersecting;
+            if (visible && !timer && !hovered) pass();
+            if (!visible) {
+              stop();
+              demoEl.classList.remove("running");
             }
           }
         },
-        { threshold: 0.35 }
+        { threshold: 0.25 }
       );
       io.observe(demoEl);
     </script>
