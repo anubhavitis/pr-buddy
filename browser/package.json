@@ -1,0 +1,16 @@
+{
+  "name": "pr-buddy-browser",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "compile": "esbuild src/content.ts src/background.ts src/popup.ts --bundle --outdir=out --format=iife --target=es2022",
+    "test": "tsc -p ./ --noEmit && tsx --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  }
+}

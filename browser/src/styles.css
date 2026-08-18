@@ -1,0 +1,288 @@
+#pr-buddy-panel {
+  --pb-bg: var(--button-default-bgColor-rest, var(--bgColor-muted, #f6f8fa));
+  --pb-fg: var(--fgColor-default, #1f2328);
+  --pb-muted: var(--fgColor-muted, #59636e);
+  --pb-border: var(--button-default-borderColor-rest, var(--borderColor-default, #d0d7de));
+  --pb-accent: var(--fgColor-accent, #0969da);
+  --pb-danger: var(--fgColor-danger, #cf222e);
+  --pb-ok: var(--fgColor-success, #1a7f37);
+  --pb-surface: var(--bgColor-default, #ffffff);
+  --pb-attention: var(--bgColor-attention-muted, #fff8c5);
+
+  position: fixed;
+  top: 62px;
+  right: 16px;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--pb-border);
+  border-radius: 6px;
+  background: var(--pb-bg);
+  color: var(--pb-fg);
+  font: 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: dark) {
+  #pr-buddy-panel {
+    --pb-bg: var(--button-default-bgColor-rest, var(--bgColor-muted, #21262d));
+    --pb-fg: var(--fgColor-default, #e6edf3);
+    --pb-muted: var(--fgColor-muted, #8b949e);
+    --pb-border: var(--button-default-borderColor-rest, var(--borderColor-default, #30363d));
+    --pb-accent: var(--fgColor-accent, #58a6ff);
+    --pb-danger: var(--fgColor-danger, #f85149);
+    --pb-ok: var(--fgColor-success, #3fb950);
+    --pb-surface: var(--bgColor-default, #0d1117);
+    --pb-attention: var(--bgColor-attention-muted, #3d2f00);
+  }
+}
+
+html[data-color-mode="light"] #pr-buddy-panel {
+  --pb-bg: var(--button-default-bgColor-rest, var(--bgColor-muted, #f6f8fa));
+  --pb-fg: var(--fgColor-default, #1f2328);
+  --pb-muted: var(--fgColor-muted, #59636e);
+  --pb-border: var(--button-default-borderColor-rest, var(--borderColor-default, #d0d7de));
+  --pb-accent: var(--fgColor-accent, #0969da);
+  --pb-danger: var(--fgColor-danger, #cf222e);
+  --pb-ok: var(--fgColor-success, #1a7f37);
+  --pb-surface: var(--bgColor-default, #ffffff);
+  --pb-attention: var(--bgColor-attention-muted, #fff8c5);
+}
+
+html[data-color-mode="dark"] #pr-buddy-panel {
+  --pb-bg: var(--button-default-bgColor-rest, var(--bgColor-muted, #21262d));
+  --pb-fg: var(--fgColor-default, #e6edf3);
+  --pb-muted: var(--fgColor-muted, #8b949e);
+  --pb-border: var(--button-default-borderColor-rest, var(--borderColor-default, #30363d));
+  --pb-accent: var(--fgColor-accent, #58a6ff);
+  --pb-danger: var(--fgColor-danger, #f85149);
+  --pb-ok: var(--fgColor-success, #3fb950);
+  --pb-surface: var(--bgColor-default, #0d1117);
+  --pb-attention: var(--bgColor-attention-muted, #3d2f00);
+}
+
+#pr-buddy-panel.pr-buddy-panel--toolbar {
+  position: relative;
+  z-index: 20;
+  flex: 0 0 auto;
+  margin: 0 0 0 8px;
+  cursor: pointer;
+}
+
+#pr-buddy-panel:hover {
+  background: var(--button-default-bgColor-hover, var(--bgColor-muted, var(--pb-bg)));
+}
+
+#pr-buddy-panel .pr-buddy-logo {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  flex: none;
+}
+
+#pr-buddy-panel .pr-buddy-name {
+  font-weight: 600;
+  color: var(--pb-fg);
+}
+
+#pr-buddy-panel .pr-buddy-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--pb-muted);
+  flex: none;
+}
+
+#pr-buddy-status {
+  color: var(--pb-muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#pr-buddy-panel.is-ok .pr-buddy-sep {
+  background: var(--pb-ok);
+}
+
+#pr-buddy-panel.is-busy .pr-buddy-sep {
+  background: var(--pb-accent);
+}
+
+#pr-buddy-panel.is-err .pr-buddy-sep {
+  background: var(--pb-danger);
+}
+
+#pr-buddy-panel.is-err #pr-buddy-status {
+  color: var(--pb-danger);
+}
+
+html.pr-buddy-has-guide [data-pr-buddy-host] > nav,
+html.pr-buddy-has-guide [data-pr-buddy-host] [role="tree"],
+html.pr-buddy-has-guide file-tree > nav,
+html.pr-buddy-has-guide file-tree [role="tree"] {
+  display: none !important;
+}
+
+#pr-buddy-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 8px 16px;
+  color: var(--fgColor-default, #1f2328);
+  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.pr-buddy-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pr-buddy-file-list .pr-buddy-file-list {
+  padding-left: 12px;
+}
+
+.pr-buddy-dir {
+  padding: 5px 4px 2px;
+  color: var(--fgColor-muted, #59636e);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-buddy-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 4px;
+  color: var(--fgColor-default, #1f2328);
+  text-decoration: none;
+}
+
+.pr-buddy-file:hover {
+  text-decoration: none;
+  color: var(--fgColor-accent, #0969da);
+}
+
+.pr-buddy-file-n {
+  flex: none;
+  width: 1.5em;
+  color: var(--fgColor-muted, #59636e);
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-buddy-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-buddy-file-note {
+  border-bottom: 1px solid var(--borderColor-default, #d0d7de);
+  background: var(--bgColor-muted, #f6f8fa);
+  color: var(--fgColor-default, #1f2328);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.pr-buddy-file-note > summary {
+  cursor: pointer;
+  padding: 6px 12px;
+  color: var(--fgColor-muted, #59636e);
+  list-style: none;
+}
+
+.pr-buddy-file-note > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pr-buddy-file-note > summary::before {
+  content: "▸ ";
+}
+
+.pr-buddy-file-note[open] > summary::before {
+  content: "▾ ";
+}
+
+.pr-buddy-file-note[open] > summary {
+  color: var(--fgColor-default, #1f2328);
+}
+
+.pr-buddy-file-note-body {
+  padding: 0 12px 10px;
+  white-space: pre-wrap;
+}
+
+#pr-buddy-dialog {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 2147483647;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid var(--button-default-borderColor-rest, var(--borderColor-default, #d0d7de));
+  border-radius: 8px;
+  background: var(--bgColor-default, #ffffff);
+  color: var(--fgColor-default, #1f2328);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  white-space: normal;
+  cursor: default;
+}
+
+html[data-color-mode="dark"] #pr-buddy-dialog {
+  background: var(--bgColor-default, #0d1117);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+#pr-buddy-dialog fieldset {
+  border: 0;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+#pr-buddy-dialog legend {
+  padding: 0;
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+#pr-buddy-dialog label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+#pr-buddy-mlx {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+#pr-buddy-mlx[hidden] {
+  display: none;
+}
+
+#pr-buddy-dialog input[type="text"],
+#pr-buddy-dialog button {
+  font: inherit;
+  color: inherit;
+  background: var(--bgColor-muted, #f6f8fa);
+  border: 1px solid var(--borderColor-default, #d0d7de);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+#pr-buddy-dialog button {
+  width: 100%;
+  cursor: pointer;
+}
+
+#pr-buddy-dialog button:hover {
+  border-color: var(--fgColor-accent, #0969da);
+}

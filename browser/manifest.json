@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "pr-buddy",
+  "version": "0.1.0",
+  "description": "Understand-first file order and per-file blurbs on GitHub pull request Files tabs.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "pr-buddy",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "permissions": ["storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://github.com/*",
+    "http://127.0.0.1:17342/*",
+    "http://localhost:17342/*"
+  ],
+  "background": {
+    "service_worker": "out/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["out/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/icon32.png"],
+      "matches": ["https://github.com/*"]
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 # PR Review System — Small-Step MVP Plan
 
+> 2026-08-18: the review surface is now a Chrome extension on github.com
+> Files tabs (`browser/` + `cmd/pr-buddy-host`). The VS Code extension is
+> deleted. The phases below still describe the earlier editor-based plan.
+
 ## Objective
 
 Prove that a personal, AI-assisted PR review workflow reduces reviewer time without reducing review quality. Build only the minimum workflow needed for a real pilot.

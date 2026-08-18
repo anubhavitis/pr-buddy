@@ -6,3 +6,6 @@
 extension/node_modules/
 extension/out/
 extension/*.vsix
+browser/node_modules/
+browser/out/
+/pr-buddy-host

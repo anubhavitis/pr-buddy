@@ -4,27 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`pr-buddy` prepares a pull request for human review: it checks the PR head out into
-an isolated worktree, runs a read-only Claude review against it, caches the result
-as a versioned artifact, and opens the review beside the diff in VS Code.
+`pr-buddy` is a Chrome overlay on github.com Files tabs. It asks a local model
+router for an understand-first file order plus per-file blurbs, then rewrites
+GitHub's file tree and stacked diffs. The reviewer still writes every comment.
 
-It is an experiment with a hypothesis, not a product. `plan.md` is the governing
-document — it defines nine phases, exit criteria, and **stop conditions that can end
-the project**. Read it before proposing work. Phases 4–7 are implemented; Phases 1–3
-are unrun evidence gates that belong to the user.
+The old VS Code extension has been removed. The Go review engine (worktrees,
+`internal/runner`, `review.json`) remains in the repo and is unused by this
+surface.
 
-The tool has never been run against a real pull request. All tests mock the process
-boundary.
+It is an experiment. `plan.md` is the older governing document. The current
+interface is `browser/` + `cmd/pr-buddy-host`.
+
+The overlay has not been run against a real pull request yet.
 
 ## Commands
 
 ```sh
-go test ./...                                   # all tests
-go test ./internal/runner                       # one package
-go test ./internal/runner -run TestRunUsesCache # one test
+go test ./...                                   # all Go tests
+go test ./internal/host                         # model router
 go test -race -count=1 ./...                    # what to run before committing
 go vet ./...                                    # only static check configured
-go build -o pr-buddy ./cmd/pr-buddy
+go build -o pr-buddy-host ./cmd/pr-buddy-host
+cd browser && npm test && npm run compile       # Chrome extension
 ```
 
 There is no linter beyond `go vet`. Per the user's global instructions, build and
@@ -32,7 +33,17 @@ lint only when the user asks to commit.
 
 ## Architecture
 
-Data flows one way, and each seam exists for a reason:
+The live surface:
+
+```
+browser/ (Chrome, github.com Files tab)
+  → scrape title / files / head SHA
+  → POST 127.0.0.1:17342/complete
+      cmd/pr-buddy-host → claude | grok | mlx_lm.server (loopback only)
+  → reorder file tree + stacked diffs, inject group + per-file blurbs
+```
+
+The unused engine, still in the tree:
 
 ```
 cmd/pr-buddy  →  gh.ViewPR       (real base/head SHAs from GitHub)
