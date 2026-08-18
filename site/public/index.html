@@ -19,15 +19,15 @@
     <meta property="og:title" content="pr-buddy: understand-first file order for GitHub pull requests" />
     <meta
       property="og:description"
-      content="GitHub sorts your files alphabetically. pr-buddy reorders them into the order you should read them. You still write every comment."
+      content="GitHub sorts your files alphabetically. pr-buddy sorts them so they make sense. Your diff never leaves your machine."
     />
-    <meta property="og:image" content="https://pr-buddy.anubhav.wtf/og.png" />
+    <meta property="og:image" content="https://pr-buddy.anubhav.wtf/og.png?v=2" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="pr-buddy: understand-first file order for GitHub pull requests. You still write every comment."
+      content="Two file lists side by side: GitHub's alphabetical tree on the left, pr-buddy's reading order on the right, grouped into contracts, host, then wiring."
     />
 
     <meta name="twitter:card" content="summary_large_image" />
@@ -35,12 +35,12 @@
     <meta name="twitter:title" content="pr-buddy: understand-first file order for GitHub pull requests" />
     <meta
       name="twitter:description"
-      content="GitHub sorts your files alphabetically. pr-buddy reorders them into the order you should read them. You still write every comment."
+      content="GitHub sorts your files alphabetically. pr-buddy sorts them so they make sense. Your diff never leaves your machine."
     />
-    <meta name="twitter:image" content="https://pr-buddy.anubhav.wtf/og.png" />
+    <meta name="twitter:image" content="https://pr-buddy.anubhav.wtf/og.png?v=2" />
     <meta
       name="twitter:image:alt"
-      content="pr-buddy: understand-first file order for GitHub pull requests. You still write every comment."
+      content="Two file lists side by side: GitHub's alphabetical tree on the left, pr-buddy's reading order on the right, grouped into contracts, host, then wiring."
     />
 
     <link rel="icon" href="/icon32.png" type="image/png" sizes="32x32" />
@@ -76,7 +76,7 @@
           --line: #d8d2c6;
           --ink: #14181d;
           --muted: #5c6470;
-          --add: #1a7f37;
+          --add: #17722f;
           --del: #c4341c;
           --mark: #8a6100;
         }
@@ -98,7 +98,7 @@
       main {
         width: min(720px, calc(100% - 40px));
         margin: 0 auto;
-        padding: 40px 0 72px;
+        padding: 40px 0 80px;
       }
       a {
         color: var(--ink);
@@ -109,11 +109,60 @@
         border-radius: 3px;
       }
 
+      /* One idea per screen. Snap is proximity rather than mandatory so slow
+         scrolling and trackpad momentum are never hijacked, and sections use
+         min-height so a tall one grows instead of clipping. */
+      html {
+        scroll-behavior: smooth;
+        scroll-snap-type: y proximity;
+      }
+      main {
+        scroll-snap-type: none;
+      }
+      .sec {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 76px 0 68px;
+        scroll-snap-align: center;
+        scroll-margin-top: 0;
+      }
+      .sec > :last-child {
+        margin-bottom: 0 !important;
+      }
+      /* Snapping a short window fights the reader more than it helps. */
+      @media (max-width: 640px), (max-height: 700px), (prefers-reduced-motion: reduce) {
+        html {
+          scroll-snap-type: none;
+          scroll-behavior: auto;
+        }
+        .sec {
+          min-height: 0;
+          padding: 40px 0;
+        }
+      }
+      .topbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+        background: color-mix(in srgb, var(--bg) 86%, transparent);
+        backdrop-filter: blur(10px);
+        border-bottom: 1px solid transparent;
+        transition: border-color 0.2s ease;
+      }
+      .topbar.stuck {
+        border-bottom-color: var(--line);
+      }
       .brand {
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-bottom: 44px;
+        width: min(720px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 14px 0;
         font-family: var(--mono);
         font-size: 13px;
         letter-spacing: 0.02em;
@@ -124,6 +173,34 @@
         height: 26px;
         border-radius: 7px;
       }
+
+      .nav {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .nav a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 12px;
+      }
+      .nav a:hover {
+        color: var(--ink);
+      }
+      .nav a.get {
+        color: var(--add);
+      }
+      @media (max-width: 560px) {
+        .nav {
+          gap: 12px;
+        }
+        .nav a.hide-s {
+          display: none;
+        }
+      }
+      /* Anchored sections need a little room so a jump does not land with the
+         heading flush against the viewport edge. */
 
       /* The headline is set in the vernacular of the thing it describes. */
       h1 {
@@ -138,155 +215,192 @@
         color: var(--add);
       }
       .lede {
-        margin: 0 0 30px;
+        margin: 0 0 34px;
         color: var(--muted);
-        max-width: 40rem;
+        font-size: 17px;
+        line-height: 1.6;
+        max-width: 34rem;
       }
 
-      /* Signature: the product performs itself. Ten real files from this
-         repository, alphabetical, reordering once into reading order. */
-      .demo {
+      /* Signature: the same pull request, twice, side by side. The comparison
+         is spatial rather than remembered, because asking the reader to hold
+         the previous state in working memory is the exact cost this product
+         exists to remove. */
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin: 0 0 12px;
+      }
+      .pane {
         border: 1px solid var(--line);
         border-radius: 10px;
         background: var(--raise);
         overflow: hidden;
-        margin: 0 0 14px;
+        min-width: 0;
       }
-      .demo-bar {
+      /* The left pane is deliberately the duller of the two. */
+      .pane.before {
+        background: var(--bg);
+      }
+      .pane-bar {
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 9px 14px;
+        gap: 8px;
+        padding: 8px 12px;
         border-bottom: 1px solid var(--line);
         background: var(--sunk);
         font-family: var(--mono);
-        font-size: 11.5px;
+        font-size: 11px;
         color: var(--muted);
       }
-      .demo-bar b {
+      .pane.after .pane-bar b {
+        color: var(--add);
+        font-weight: 600;
+      }
+      .pane-bar b {
         color: var(--ink);
         font-weight: 500;
       }
-      .sortlabel {
+      .pane-bar .tag {
         margin-left: auto;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
-      .sortlabel .dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--muted);
-        transition: background 0.45s ease;
-      }
-      .demo.done .sortlabel .dot {
-        background: var(--add);
-      }
-      /* A hairline that runs the length of the hold, so the demo reads as
-         something live even in the seconds when nothing is moving. */
-      .cycle {
-        height: 1.5px;
-        background: var(--add);
-        width: 0;
-        opacity: 0;
-      }
-      .demo.running .cycle {
-        width: 100%;
-        opacity: 0.55;
-        transition: width 3.2s linear, opacity 0.3s ease;
-      }
-      .rows {
-        position: relative;
+      .plist {
         padding: 6px 0;
+        margin: 0;
+        list-style: none;
       }
-      .row {
+      .prow {
         display: grid;
-        grid-template-columns: 18px 1fr;
-        gap: 10px;
+        grid-template-columns: 34px 1fr;
+        gap: 8px;
         align-items: baseline;
-        padding: 4px 14px;
+        padding: 5px 12px;
         font-family: var(--mono);
-        font-size: 12.5px;
-        line-height: 1.5;
-        transition: transform 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
-        will-change: transform;
+        font-size: 11.5px;
+        line-height: 1.45;
+        cursor: pointer;
+        transition: background 0.16s ease;
       }
-      .row .g {
+      .prow .rank {
         color: var(--muted);
-        text-align: right;
-        font-size: 10.5px;
+        font-size: 10px;
         font-variant-numeric: tabular-nums;
+        white-space: nowrap;
       }
-      .row .p {
+      .prow .path {
         color: var(--ink);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pane.before .prow .path {
+        color: var(--muted);
+      }
+      /* Hovering one file lights it in both panes, so a reader can trace where
+         it went without a connecting line between the columns. */
+      .prow.lit {
+        background: color-mix(in srgb, var(--add) 14%, transparent);
+      }
+      .prow.lit .path {
+        color: var(--ink);
+      }
+      .prow .delta {
+        color: var(--add);
+        font-size: 9.5px;
+      }
+      .prow .delta.down {
+        color: var(--muted);
+      }
+      /* GitHub renders the Files tab as a collapsible tree, and single-child
+         directory chains collapse into one row (browser/src). Showing a flat
+         list here would understate the problem: in the real UI the file you
+         need is nested inside folders. */
+      .tnode {
+        display: grid;
+        grid-template-columns: 1fr;
+        padding: 4px 12px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        line-height: 1.45;
+        color: var(--muted);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
       }
-      /* The blurb is the second idea, so it waits to be asked for. Keeping it
-         always-on tripled the height and buried the reorder. */
-      .row .b {
-        display: block;
+      .tdir {
         color: var(--muted);
-        font-family: var(--sans);
-        font-size: 11.5px;
-        line-height: 1.4;
-        max-height: 0;
-        opacity: 0;
-        overflow: hidden;
-        transition: max-height 0.34s ease, opacity 0.28s ease, margin 0.34s ease;
       }
-      .demo.done .row:hover .b,
-      .demo.done .row:focus-within .b {
-        max-height: 3em;
-        opacity: 1;
-        margin-top: 1px;
+      .tdir .caret {
+        display: inline-block;
+        width: 9px;
+        color: var(--muted);
       }
-      .row:hover .p,
-      .row:focus-within .p {
-        color: var(--add);
+      .tfile {
+        cursor: pointer;
+        transition: background 0.16s ease;
       }
-      /* Group headers are absent until there is a grouping to announce. */
-      .ghead {
-        padding: 9px 14px 2px;
+      .tfile .name {
+        color: var(--muted);
+      }
+      .tfile.lit {
+        background: color-mix(in srgb, var(--add) 14%, transparent);
+      }
+      .tfile.lit .name {
+        color: var(--ink);
+      }
+      .pgroup {
+        padding: 8px 12px 2px;
         font-family: var(--mono);
-        font-size: 10px;
-        letter-spacing: 0.11em;
+        font-size: 9.5px;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
         color: var(--add);
-        max-height: 0;
-        opacity: 0;
-        overflow: hidden;
-        transition: max-height 0.45s ease, opacity 0.4s ease;
       }
-      .demo.done .ghead {
-        max-height: 3em;
-        opacity: 1;
+      .pgroup:first-child {
+        padding-top: 4px;
+      }
+      .blurb {
+        min-height: 1.5em;
+        margin: 0 0 6px;
+        padding: 0 2px;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.45;
+        transition: color 0.2s ease;
+      }
+      .blurb b {
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 11.5px;
+        font-weight: 500;
+      }
+      .blurb .hint {
+        color: var(--muted);
+        font-style: normal;
       }
       .demo-note {
         display: flex;
         flex-wrap: wrap;
         align-items: baseline;
         gap: 8px;
-        margin: 0 0 46px;
+        margin: 0 0 56px;
         font-family: var(--mono);
         font-size: 11.5px;
         color: var(--muted);
       }
-      .demo-note button {
-        font: inherit;
-        color: var(--mark);
-        background: none;
-        border: 0;
-        padding: 0;
-        cursor: pointer;
-        text-decoration: underline;
-        text-underline-offset: 2px;
+      @media (max-width: 640px) {
+        .compare {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
       }
 
       h2 {
-        margin: 0 0 16px;
+        margin: 0 0 18px;
         font-family: var(--mono);
         font-size: 11px;
         font-weight: 600;
@@ -295,56 +409,88 @@
         color: var(--muted);
       }
 
-      .probs {
-        list-style: none;
-        margin: 0 0 46px;
-        padding: 0;
+      /* The comparison above already made the argument. This is the receipt,
+         not a second telling of it: two findings, the numbers doing the work,
+         and the honest caveat in the same breath rather than a separate box. */
+      .why {
         display: grid;
-        gap: 22px;
+        grid-template-columns: 1fr 1fr;
+        gap: 28px;
+        margin: 0 0 14px;
+        padding: 0;
+        list-style: none;
       }
-      .probs li {
+      .why li {
         margin: 0;
       }
-      .probs h3 {
-        margin: 0 0 7px;
-        font-size: 15.5px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-      }
-      .probs p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 14.5px;
-      }
-      .probs a {
+      .why .fig {
+        display: block;
+        font-family: var(--mono);
+        font-size: 26px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
         color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+      .why .says {
+        display: block;
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      .why cite {
+        display: block;
+        margin-top: 6px;
+        font-style: normal;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+      }
+      .why cite a {
+        color: inherit;
         text-decoration-color: var(--line);
-        text-underline-offset: 2px;
+        text-underline-offset: 3px;
       }
-      .probs a:hover {
-        text-decoration-color: var(--mark);
+      .why cite a:hover {
+        color: var(--add);
       }
-
+      .caveat {
+        margin: 0 0 46px;
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      @media (max-width: 560px) {
+        .why {
+          grid-template-columns: 1fr;
+          gap: 22px;
+        }
+      }
       .steps {
         list-style: none;
-        margin: 0 0 20px;
+        margin: 0 0 24px;
         padding: 0;
         display: grid;
         gap: 22px;
       }
       .steps li {
+        list-style: none;
         display: grid;
-        grid-template-columns: 22px 1fr;
+        grid-template-columns: 26px 1fr;
         gap: 14px;
         align-items: start;
         margin: 0;
       }
       .steps .n {
         font-family: var(--mono);
-        font-size: 12px;
-        font-weight: 600;
+        font-size: 11px;
+        font-weight: 700;
         color: var(--add);
-        line-height: 1.7;
+        line-height: 1.9;
+        letter-spacing: 0.04em;
       }
       .steps h3 {
         margin: 0 0 5px;
@@ -360,30 +506,48 @@
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        padding: 9px 14px;
-        border: 1px solid var(--line);
-        border-radius: 7px;
-        background: var(--raise);
-        color: var(--ink);
+        padding: 11px 16px;
+        border: 1px solid var(--add);
+        border-radius: 8px;
+        background: var(--add);
+        color: var(--bg);
         text-decoration: none;
         font-family: var(--mono);
-        font-size: 12.5px;
-        font-weight: 500;
+        font-size: 13px;
+        font-weight: 600;
+        transition: transform 0.12s ease, filter 0.16s ease;
       }
       .btn:hover {
-        border-color: var(--add);
-        color: var(--add);
+        filter: brightness(1.12);
+        transform: translateY(-1px);
+      }
+      .btn:active {
+        transform: translateY(0);
       }
       .btn .sz {
-        color: var(--muted);
-        font-size: 11px;
+        color: var(--bg);
+        opacity: 0.72;
+        font-size: 11.5px;
+        font-weight: 500;
       }
-      .btn:hover .sz {
-        color: inherit;
+      /* Order is the point of this section, so only the first step is loud. */
+      .btn.second {
+        background: transparent;
+        color: var(--ink);
+        border-color: var(--line);
+      }
+      .btn.second:hover {
+        border-color: var(--add);
+        color: var(--add);
+        filter: none;
+      }
+      .btn.second .sz {
+        color: var(--muted);
+        opacity: 1;
       }
 
       .note {
-        margin: 0 0 46px;
+        margin: 0 0 52px;
         color: var(--muted);
         font-size: 14px;
       }
@@ -397,6 +561,13 @@
         white-space: nowrap;
       }
 
+      .diagram-wrap {
+        overflow-x: auto;
+        margin: 0 0 18px;
+      }
+      .diagram-wrap .diagram {
+        min-width: 560px;
+      }
       .diagram {
         --d-surface: var(--raise);
         --d-line: var(--line);
@@ -409,25 +580,48 @@
         width: 100%;
         height: auto;
         margin: 0 0 18px;
-        overflow: visible;
       }
 
-      footer {
-        display: flex;
-        gap: 18px;
-        padding-top: 26px;
-        border-top: 1px solid var(--line);
-        font-family: var(--mono);
-        font-size: 12.5px;
+      /* The last screen is two destinations and nothing else. */
+      .sec.end {
+        justify-content: center;
+        align-items: flex-start;
       }
-      footer a {
-        color: var(--muted);
+      .endlinks {
+        display: grid;
+        gap: 2px;
+        width: 100%;
+      }
+      .endlinks a {
+        display: grid;
+        gap: 4px;
+        padding: 22px 0;
+        border-bottom: 1px solid var(--line);
         text-decoration: none;
+        transition: padding-left 0.2s ease;
       }
-      footer a:hover {
+      .endlinks a:first-child {
+        border-top: 1px solid var(--line);
+      }
+      .endlinks a:hover {
+        padding-left: 10px;
+      }
+      .endlinks .lbl {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .endlinks .val {
+        font-family: var(--mono);
+        font-size: clamp(15px, 2.6vw, 20px);
         color: var(--ink);
+        letter-spacing: -0.01em;
       }
-
+      .endlinks a:hover .val {
+        color: var(--add);
+      }
       @media (max-width: 560px) {
         main {
           padding-top: 30px;
@@ -451,77 +645,83 @@
     </style>
   </head>
   <body>
-    <main>
+    <div class="topbar" id="topbar">
       <div class="brand">
         <img src="/icon128.png" width="26" height="26" alt="" />
         <span>pr-buddy</span>
+        <nav class="nav">
+          <a href="#why-sec" class="hide-s">Why</a>
+          <a href="#install-sec">Install</a>
+          <a href="#how-sec" class="hide-s">How it works</a>
+          <a href="https://github.com/anubhavitis/pr-buddy" class="get">GitHub</a>
+        </nav>
       </div>
+    </div>
 
+    <main>
+      <section class="sec">
       <h1>
         GitHub sorts your files alphabetically.<br />
         <span class="fix">pr-buddy sorts them so they make sense.</span>
       </h1>
       <p class="lede">
-        A Chrome overlay on the Files tab. A local model reorders the tree and the stacked
-        diffs, and writes a line on what each file is doing here. You still write every
-        comment.
+        A Chrome overlay on the Files tab. A local model reorders the tree and writes a line
+        on what each file is doing here. You still write every comment.
       </p>
 
-      <div class="demo" id="demo">
-        <div class="demo-bar">
-          <b>pr-buddy</b> <span>#412</span>
-          <span class="sortlabel"><span class="dot"></span><span id="sortmode">sorted A to Z</span></span>
+      <div class="compare" id="compare">
+        <div class="pane before">
+          <div class="pane-bar"><b>github.com</b><span class="tag">as shipped</span></div>
+          <div class="plist" id="listBefore"></div>
         </div>
-        <div class="cycle" id="cycle"></div>
-        <div class="rows" id="rows"></div>
+        <div class="pane after">
+          <div class="pane-bar"><b>pr-buddy</b><span class="tag">read in this order</span></div>
+          <ul class="plist" id="listAfter"></ul>
+        </div>
       </div>
+      <p class="blurb" id="blurb"></p>
       <p class="demo-note">
-        <span>Real files from this repository. Hover a row for its blurb.</span>
-        <button type="button" id="replay">replay</button>
+        <span>Six real files from this repo. Hover any file to see where it moved.</span>
       </p>
 
-      <h2>What it fixes</h2>
-      <ul class="probs">
+      </section>
+
+      <section class="sec" id="why-sec">
+      <h2 id="why">Why the order matters</h2>
+      <ul class="why">
         <li>
-          <h3>Alphabetical is not a reading order.</h3>
-          <p>
-            The type that explains the change sits three folders below the code that uses
-            it, so you scroll up and down rebuilding the shape of it in your head. Position
-            matters more than it looks: on IntelliJ IDEA,
-            <a href="https://arxiv.org/abs/2306.06956">Bagirov et al.</a> found reviewers
-            leave more comments on files shown higher up, and that ordering by diff beat
-            alphabetical at putting the risky files where someone would actually look.
-            Reviewers already work around this, commenting out of alphabetical order on
-            44.6% of pull requests in
-            <a href="https://arxiv.org/abs/2506.10654">a study of 23,241 of them</a>.
-            pr-buddy hands you that order up front.
-          </p>
+          <span class="fig">44.6%</span>
+          <span class="says">of pull requests get commented out of alphabetical order.
+            Reviewers already fight the default, and files shown higher up get more
+            comments than the ones below.</span>
+          <cite><a href="https://arxiv.org/abs/2506.10654">23,241 PRs</a> ·
+            <a href="https://arxiv.org/abs/2306.06956">Bagirov et al.</a></cite>
         </li>
         <li>
-          <h3>You open the diff not knowing what any file is for.</h3>
-          <p>
-            Every file is a wall of green and red you have to classify yourself, and that
-            cost lands hardest on bugs spread across several files.
-            <a href="https://doi.org/10.1007/s10664-018-9676-8">Baum, Schneider and Bacchelli</a>
-            ran 50 mostly professional developers through seeded reviews: the ones with more
-            working memory to spare caught more delocalized defects, the kind you only see by
-            holding several files at once. pr-buddy writes a line or two per file and a
-            summary per group, so that attention goes to the code instead of to orientation.
-            Straight version: the same study could not reliably show that reordering alone
-            improves defect find rate. This buys you ergonomics, not a proven win.
-          </p>
+          <span class="fig">50 devs</span>
+          <span class="says">in seeded reviews: the ones with more working memory to spare
+            caught more bugs spread across several files, the kind you only see by holding
+            a few files at once.</span>
+          <cite><a href="https://doi.org/10.1007/s10664-018-9676-8">Baum, Schneider and Bacchelli</a></cite>
         </li>
       </ul>
+      <p class="caveat">
+        Straight version: that second study could not reliably show reordering alone
+        improves defect find rate. This buys you ergonomics, not a proven win.
+      </p>
 
-      <h2>Install: two pieces</h2>
+      </section>
+
+      <section class="sec" id="install-sec">
+      <h2 id="install">Install: two pieces</h2>
       <ul class="steps">
         <li>
           <span class="n" aria-hidden="true">01</span>
           <div>
             <h3>The host binary</h3>
             <p>
-              Connects your machine's AI backend to the browser. Run it and leave it running
-              on <code>127.0.0.1:17342</code>. If macOS blocks it: right-click, then Open.
+              Connects your AI backend to the browser. Leave it running on
+              <code>127.0.0.1:17342</code>. If macOS blocks it: right-click, then Open.
             </p>
             <a class="btn" href="https://github.com/anubhavitis/pr-buddy/releases/latest/download/pr-buddy-host-darwin-arm64">
               Download host <span class="sz">Mac M-series</span>
@@ -533,29 +733,27 @@
           <div>
             <h3>The Chrome extension</h3>
             <p>
-              Unzip it, then Chrome, <code>chrome://extensions</code>, Developer mode, Load
-              unpacked. Open a PR <strong>Files</strong> tab and click the pr-buddy pill.
+              Unzip, then <code>chrome://extensions</code> → Developer mode → Load unpacked.
+              Open a PR <strong>Files</strong> tab and click the pr-buddy pill.
             </p>
-            <a class="btn" href="https://github.com/anubhavitis/pr-buddy/releases/latest/download/pr-buddy-extension.zip">
+            <a class="btn second" href="https://github.com/anubhavitis/pr-buddy/releases/latest/download/pr-buddy-extension.zip">
               Download extension <span class="sz">.zip</span>
             </a>
           </div>
         </li>
       </ul>
       <p class="note">
-        Install the host first. The extension needs something to talk to, and if the host is
-        not running the overlay just says <code>host offline — start pr-buddy-host</code>.
-        Start the binary and click again. You need Chrome, an Apple Silicon Mac, and one of
-        <code>claude</code>, <code>grok</code>, or <code>mlx</code> already installed. No Go,
-        no npm.
+        Host first: without it the overlay just says
+        <code>host offline — start pr-buddy-host</code>. Needs Chrome, an Apple Silicon Mac,
+        and one of <code>claude</code>, <code>grok</code> or <code>mlx</code>. No Go, no npm.
       </p>
 
-      <h2>How it works</h2>
-      <p class="note" style="margin-bottom: 18px">
-        Two installs. The extension rewrites the GitHub page; the host runs your model. They
-        talk over <code>127.0.0.1:17342</code>, a port on your own laptop.
-      </p>
-<svg xmlns="http://www.w3.org/2000/svg" class="diagram" width="760" height="520" viewBox="0 0 760 520" role="img" aria-labelledby="archtitle archdesc" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+      </section>
+
+      <section class="sec" id="how-sec">
+      <h2 id="how">How it works</h2>
+<div class="diagram-wrap">
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="0 0 760 520" role="img" aria-labelledby="archtitle archdesc" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
   <title id="archtitle">How pr-buddy works: two installs talking over 127.0.0.1</title>
   <desc id="archdesc">Inside your laptop there are two halves. In the browser, the Chrome extension (install 2) reads the GitHub pull request Files tab and rewrites it; its worker is the only part that talks to the host. On the machine, the pr-buddy-host binary (install 1) listens on 127.0.0.1 port 17342, loopback only, and runs your chosen backend: claude, grok, or mlx. The extension posts the file paths, the pull request title and description, and the head SHA to the host. The diff contents are never sent. The claude and grok backends reach a vendor API with that same metadata; mlx stays fully offline.</desc>
 
@@ -652,17 +850,28 @@
   </g>
   <text class="noT" x="381" y="452" text-anchor="middle">diff contents: never sent</text>
 </svg>
+</div>
       <p class="note">
-        The extension sends the file paths, the PR title and description, and the head SHA.
-        <strong>Your diff is never sent.</strong> pr-buddy never checks out, builds, or runs
-        the branch. <code>claude</code> and <code>grok</code> reach their vendor API with
-        that same metadata; <code>mlx</code> stays fully offline.
+        <strong>Your diff is never sent.</strong> Only paths, title, description and SHA.
+        pr-buddy never checks out, builds, or runs the branch.
+        <code>claude</code> and <code>grok</code> send that metadata to their vendor API;
+        <code>mlx</code> stays fully offline.
       </p>
 
-      <footer>
-        <a href="https://github.com/anubhavitis/pr-buddy">GitHub</a>
-        <a href="https://www.anubhav.wtf">anubhav.wtf</a>
-      </footer>
+      </section>
+
+      <section class="sec end">
+        <nav class="endlinks">
+          <a href="https://github.com/anubhavitis/pr-buddy">
+            <span class="lbl">Source</span>
+            <span class="val">github.com/anubhavitis/pr-buddy</span>
+          </a>
+          <a href="https://www.anubhav.wtf">
+            <span class="lbl">Built by</span>
+            <span class="val">anubhav.wtf</span>
+          </a>
+        </nav>
+      </section>
     </main>
 
     <script>
@@ -671,184 +880,149 @@
       // entrypoints, implementation, wiring, tests.
       // Six real files from this repository. Six is enough to show grouping
       // and still fit both the before and after state on one screen.
+      // Six real files from this repository. `rank` fields are computed, not
+      // authored, so the two panes can never drift out of agreement.
       const FILES = [
-        { p: "browser/src/background.ts", g: "Wiring",     b: "Service worker. The only place that fetches the host." },
-        { p: "browser/src/guide.test.ts", g: "Wiring",     b: "Covers malformed model output and missing groups." },
-        { p: "browser/src/guide.ts",      g: "Contracts",  b: "The Guide type. Everything downstream is shaped by it." },
-        { p: "browser/src/prompt.ts",     g: "Contracts",  b: "Builds the prompt. Defines what crosses the wire." },
+        { p: "browser/src/background.ts", g: "Wiring",        b: "Service worker. The only place that fetches the host." },
+        { p: "browser/src/guide.test.ts", g: "Wiring",        b: "Covers malformed model output and missing groups." },
+        { p: "browser/src/guide.ts",      g: "Contracts",     b: "The Guide type. Everything downstream is shaped by it." },
+        { p: "browser/src/prompt.ts",     g: "Contracts",     b: "Builds the prompt. Defines what crosses the wire." },
         { p: "cmd/pr-buddy-host/main.go", g: "Then the host", b: "Binds loopback and refuses anything else." },
         { p: "internal/host/host.go",     g: "Then the host", b: "Dispatches to claude, grok, or mlx. All print-only." },
       ];
       const GROUPS = ["Contracts", "Then the host", "Wiring"];
 
-      const HOLD_AZ = 1000;   // let the alphabetical state register first
-      const HOLD_SORTED = 3200; // matches the .cycle transition duration
-
-      const rowsEl = document.getElementById("rows");
-      const demoEl = document.getElementById("demo");
-      const modeEl = document.getElementById("sortmode");
-      const replayEl = document.getElementById("replay");
-      const cycleEl = document.getElementById("cycle");
-      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const beforeEl = document.getElementById("listBefore");
+      const afterEl = document.getElementById("listAfter");
+      const blurbEl = document.getElementById("blurb");
 
       const az = [...FILES].sort((a, b) => a.p.localeCompare(b.p));
       const ordered = [];
       for (const g of GROUPS) {
         for (const f of FILES) if (f.g === g) ordered.push(f);
       }
+      const rankBefore = new Map(az.map((f, i) => [f.p, i + 1]));
+      const rankAfter = new Map(ordered.map((f, i) => [f.p, i + 1]));
 
-      const nodes = new Map();
-      let timer = null;
-      let visible = false;
-      let hovered = false;
+      const IDLE = "";
+      blurbEl.innerHTML = IDLE;
 
-      function build() {
-        rowsEl.textContent = "";
-        nodes.clear();
-        az.forEach((f, i) => {
-          const row = document.createElement("div");
-          row.className = "row";
-          row.tabIndex = 0;
-          const g = document.createElement("span");
-          g.className = "g";
-          g.textContent = String(i + 1).padStart(2, "0");
-          const wrap = document.createElement("span");
-          const path = document.createElement("span");
-          path.className = "p";
-          path.textContent = f.p;
-          const blurb = document.createElement("span");
-          blurb.className = "b";
-          blurb.textContent = f.b;
-          wrap.append(path, blurb);
-          row.append(g, wrap);
-          rowsEl.append(row);
-          nodes.set(f.p, row);
-        });
+      // Rows for one path live in both panes; lighting is driven by path.
+      const linked = new Map();
+      function link(path, node) {
+        if (!linked.has(path)) linked.set(path, []);
+        linked.get(path).push(node);
+        node.addEventListener("pointerenter", () => lite(path));
+        node.addEventListener("pointerleave", () => lite(null));
+        node.addEventListener("focus", () => lite(path));
+        node.addEventListener("blur", () => lite(null));
+        node.tabIndex = 0;
+      }
+      function lite(path) {
+        for (const [k, arr] of linked) {
+          for (const n of arr) n.classList.toggle("lit", k === path);
+        }
+        if (!path) {
+          blurbEl.innerHTML = IDLE;
+          return;
+        }
+        const f = FILES.find((x) => x.p === path);
+        const from = rankBefore.get(path);
+        const to = rankAfter.get(path);
+        const moved =
+          from === to
+            ? "stays at " + to
+            : from + " \u2192 " + to + (to < from ? " (up " + (from - to) + ")" : " (down " + (to - from) + ")");
+        blurbEl.innerHTML =
+          "<b>" + f.p.split("/").pop() + "</b> &nbsp;" + f.b + " &nbsp;<span class='hint'>" + moved + "</span>";
       }
 
-      function reorder() {
-        const heads = new Map();
-        for (const g of GROUPS) {
-          const h = document.createElement("div");
-          h.className = "ghead";
-          h.textContent = g;
-          heads.set(g, h);
+      // ---- left pane: GitHub's collapsible tree, with single-child chains
+      // collapsed the way GitHub collapses them (browser/src). ----
+      function buildTree(files) {
+        const root = { dirs: new Map(), files: [] };
+        for (const f of files) {
+          const parts = f.p.split("/");
+          const name = parts.pop();
+          let node = root;
+          for (const part of parts) {
+            if (!node.dirs.has(part)) node.dirs.set(part, { dirs: new Map(), files: [] });
+            node = node.dirs.get(part);
+          }
+          node.files.push({ name: name, path: f.p });
         }
-        const first = new Map();
-        for (const [path, node] of nodes) first.set(path, node.getBoundingClientRect().top);
+        return root;
+      }
+      function renderTree(node, prefix, depth, out) {
+        for (const [name, child] of node.dirs) {
+          // Collapse a chain of single-child directories into one row.
+          let label = name;
+          let cur = child;
+          while (cur.files.length === 0 && cur.dirs.size === 1) {
+            const [onlyName, onlyChild] = [...cur.dirs.entries()][0];
+            label += "/" + onlyName;
+            cur = onlyChild;
+          }
+          const row = document.createElement("div");
+          row.className = "tnode tdir";
+          row.style.paddingLeft = 12 + depth * 13 + "px";
+          row.innerHTML = "<span><span class='caret'>\u25be</span>" + label + "</span>";
+          out.append(row);
+          renderTree(cur, prefix, depth + 1, out);
+        }
+        for (const f of node.files) {
+          const row = document.createElement("div");
+          row.className = "tnode tfile";
+          row.style.paddingLeft = 12 + (depth + 1) * 13 + "px";
+          const nm = document.createElement("span");
+          nm.className = "name";
+          nm.textContent = f.name;
+          row.append(nm);
+          out.append(row);
+          link(f.path, row);
+        }
+      }
 
-        rowsEl.textContent = "";
+      function renderBefore() {
+        beforeEl.textContent = "";
+        renderTree(buildTree(az), "", 0, beforeEl);
+      }
+
+      // ---- right pane: pr-buddy's grouped reading order ----
+      function renderAfter() {
+        afterEl.textContent = "";
         let seen = null;
         ordered.forEach((f, i) => {
           if (f.g !== seen) {
-            rowsEl.append(heads.get(f.g));
+            const h = document.createElement("li");
+            h.className = "pgroup";
+            h.textContent = f.g;
+            afterEl.append(h);
             seen = f.g;
           }
-          const node = nodes.get(f.p);
-          node.querySelector(".g").textContent = String(i + 1).padStart(2, "0");
-          rowsEl.append(node);
-        });
-
-        if (reduced.matches) {
-          demoEl.classList.add("done");
-          modeEl.textContent = "sorted to read";
-          return;
-        }
-        // FLIP: measure the new position, jump each row back to its old one,
-        // then release. One transition, no layout thrash.
-        for (const [path, node] of nodes) {
-          const last = node.getBoundingClientRect().top;
-          const dy = first.get(path) - last;
-          if (dy) {
-            node.style.transition = "none";
-            node.style.transform = "translateY(" + dy + "px)";
-          }
-        }
-        requestAnimationFrame(function () {
-          requestAnimationFrame(function () {
-            for (const node of nodes.values()) {
-              node.style.transition = "";
-              node.style.transform = "";
-            }
-            demoEl.classList.add("done");
-            modeEl.textContent = "sorted to read";
-          });
+          const li = document.createElement("li");
+          li.className = "prow";
+          const rank = document.createElement("span");
+          rank.className = "rank";
+          const from = rankBefore.get(f.p);
+          const to = i + 1;
+          const d = from - to;
+          rank.innerHTML =
+            String(to).padStart(2, "0") +
+            (d === 0
+              ? ""
+              : " <span class='delta" + (d < 0 ? " down" : "") + "'>" + (d > 0 ? "\u25b2" : "\u25bc") + Math.abs(d) + "</span>");
+          const path = document.createElement("span");
+          path.className = "path";
+          path.textContent = f.p.split("/").pop();
+          li.append(rank, path);
+          afterEl.append(li);
+          link(f.p, li);
         });
       }
 
-      function stop() {
-        clearTimeout(timer);
-        timer = null;
-      }
-
-      // One pass: alphabetical, reorder, hold, reset. The reset is deliberately
-      // unanimated so it never reads as a second, competing motion.
-      function pass() {
-        stop();
-        demoEl.classList.remove("done", "running");
-        modeEl.textContent = "sorted A to Z";
-        build();
-        if (reduced.matches) {
-          reorder();
-          return;
-        }
-        timer = setTimeout(function () {
-          reorder();
-          // Start the hold bar on the next frame so the width transition runs.
-          requestAnimationFrame(function () {
-            demoEl.classList.add("running");
-          });
-          timer = setTimeout(loop, HOLD_SORTED);
-        }, HOLD_AZ);
-      }
-
-      function loop() {
-        if (!visible || hovered || reduced.matches) {
-          timer = null;
-          return;
-        }
-        pass();
-      }
-
-      // Pause on hover so reading a blurb is never interrupted by a reset.
-      demoEl.addEventListener("pointerenter", function () {
-        hovered = true;
-        stop();
-        demoEl.classList.remove("running");
-      });
-      demoEl.addEventListener("pointerleave", function () {
-        hovered = false;
-        if (visible && !reduced.matches && !timer) timer = setTimeout(loop, 900);
-      });
-      demoEl.addEventListener("focusin", function () {
-        hovered = true;
-        stop();
-        demoEl.classList.remove("running");
-      });
-      demoEl.addEventListener("focusout", function () {
-        if (demoEl.contains(document.activeElement)) return;
-        hovered = false;
-        if (visible && !reduced.matches && !timer) timer = setTimeout(loop, 900);
-      });
-
-      replayEl.addEventListener("click", pass);
-
-      // Only run while on screen. A loop nobody is looking at is just battery.
-      build();
-      const io = new IntersectionObserver(
-        function (entries) {
-          for (const e of entries) {
-            visible = e.isIntersecting;
-            if (visible && !timer && !hovered) pass();
-            if (!visible) {
-              stop();
-              demoEl.classList.remove("running");
-            }
-          }
-        },
-        { threshold: 0.25 }
-      );
-      io.observe(demoEl);
+      renderBefore();
+      renderAfter();
     </script>
   </body>
 </html>
