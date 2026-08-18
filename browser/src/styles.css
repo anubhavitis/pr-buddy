@@ -66,18 +66,21 @@ html[data-color-mode="dark"] #pr-buddy-panel {
 }
 
 #pr-buddy-dock {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  flex: 1 0 100%;
-  flex-basis: 100%;
-  width: 100%;
-  max-width: 100%;
-  margin: 4px 0 6px;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
   box-sizing: border-box;
 }
 
 #pr-buddy-panel.pr-buddy-panel--toolbar {
   position: relative;
+  top: auto;
+  right: auto;
+  left: auto;
+  bottom: auto;
   z-index: auto;
   flex: 0 1 auto;
   width: auto;
@@ -141,12 +144,21 @@ html.pr-buddy-has-guide file-tree [role="tree"] {
 }
 
 #pr-buddy-tree {
+  --pb-guide: var(--borderColor-muted, var(--borderColor-default, #d0d7de));
+  --pb-row-hover: var(--control-transparent-bgColor-hover, var(--bgColor-muted, rgba(208, 215, 222, 0.32)));
+  --pb-row-active: var(--bgColor-accent-muted, rgba(84, 174, 255, 0.16));
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 6px 8px 16px;
+  padding: 4px 8px 16px;
   color: var(--fgColor-default, #1f2328);
   font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+html[data-color-mode="dark"] #pr-buddy-tree {
+  --pb-guide: var(--borderColor-muted, #3d444d);
+  --pb-row-hover: var(--control-transparent-bgColor-hover, rgba(177, 186, 196, 0.12));
+  --pb-row-active: var(--bgColor-accent-muted, rgba(56, 139, 253, 0.18));
 }
 
 .pr-buddy-file-list {
@@ -156,36 +168,92 @@ html.pr-buddy-has-guide file-tree [role="tree"] {
 }
 
 .pr-buddy-file-list .pr-buddy-file-list {
+  position: relative;
+  margin-left: 7px;
   padding-left: 12px;
 }
 
+.pr-buddy-file-list .pr-buddy-file-list > li {
+  position: relative;
+}
+
+.pr-buddy-file-list .pr-buddy-file-list > li::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--pb-guide);
+  pointer-events: none;
+}
+
+.pr-buddy-file-list .pr-buddy-file-list > li::after {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 11px;
+  width: 10px;
+  height: 1px;
+  background: var(--pb-guide);
+  pointer-events: none;
+}
+
+.pr-buddy-file-list .pr-buddy-file-list > li:last-child::before {
+  height: 11px;
+  bottom: auto;
+}
+
 .pr-buddy-dir {
-  padding: 5px 4px 2px;
+  padding: 4px 6px 3px;
   color: var(--fgColor-muted, #59636e);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  border-radius: 6px;
 }
 
 .pr-buddy-file {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 4px;
+  padding: 3px 6px;
+  margin: 1px 0;
   color: var(--fgColor-default, #1f2328);
   text-decoration: none;
+  border-radius: 6px;
+  outline: none;
 }
 
-.pr-buddy-file:hover {
+.pr-buddy-file:hover,
+.pr-buddy-dir:hover {
   text-decoration: none;
-  color: var(--fgColor-accent, #0969da);
+  background: var(--pb-row-hover);
+}
+
+.pr-buddy-file:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--fgColor-accent, #0969da);
+}
+
+.pr-buddy-file.is-active {
+  background: var(--pb-row-active);
+  color: var(--fgColor-default, #1f2328);
+}
+
+.pr-buddy-file.is-active:hover {
+  background: var(--pb-row-active);
 }
 
 .pr-buddy-file-n {
   flex: none;
-  width: 1.5em;
+  width: 1.6em;
   color: var(--fgColor-muted, #59636e);
   font-variant-numeric: tabular-nums;
+}
+
+.pr-buddy-file.is-active .pr-buddy-file-n {
+  color: var(--fgColor-accent, #0969da);
+  font-weight: 600;
 }
 
 .pr-buddy-file-path {
@@ -195,37 +263,90 @@ html.pr-buddy-has-guide file-tree [role="tree"] {
 }
 
 .pr-buddy-file-note {
-  border-bottom: 1px solid var(--borderColor-default, #d0d7de);
-  background: var(--bgColor-muted, #f6f8fa);
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: min(340px, calc(100% - 16px));
+  margin: 0;
+  pointer-events: none;
+  font: 12px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+.pr-buddy-file-note-chip,
+.pr-buddy-file-note-card {
+  pointer-events: auto;
+}
+
+.pr-buddy-file-note-chip {
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--borderColor-default, #30363d);
+  border-radius: 6px;
+  background: var(--bgColor-default, #ffffff);
   color: var(--fgColor-default, #1f2328);
-  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-}
-
-.pr-buddy-file-note > summary {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   cursor: pointer;
-  padding: 6px 12px;
-  color: var(--fgColor-muted, #59636e);
-  list-style: none;
 }
 
-.pr-buddy-file-note > summary::-webkit-details-marker {
+.pr-buddy-file-note:not(.is-closed) .pr-buddy-file-note-chip {
   display: none;
 }
 
-.pr-buddy-file-note > summary::before {
-  content: "▸ ";
+.pr-buddy-file-note.is-closed .pr-buddy-file-note-card {
+  display: none;
 }
 
-.pr-buddy-file-note[open] > summary::before {
-  content: "▾ ";
-}
-
-.pr-buddy-file-note[open] > summary {
+.pr-buddy-file-note-card {
+  width: min(340px, calc(100% - 16px));
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--borderColor-default, #30363d);
+  border-radius: 8px;
+  background: var(--bgColor-default, #ffffff);
   color: var(--fgColor-default, #1f2328);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+}
+
+.pr-buddy-file-note-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+}
+
+.pr-buddy-file-note-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-buddy-file-note-close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fgColor-muted, #8b949e);
+  cursor: pointer;
+  font: 16px/1 inherit;
+}
+
+.pr-buddy-file-note-close:hover {
+  background: var(--bgColor-muted, #21262d);
 }
 
 .pr-buddy-file-note-body {
-  padding: 0 12px 10px;
+  padding: 0 12px 12px;
+  color: var(--fgColor-default, #1f2328);
   white-space: pre-wrap;
 }
 

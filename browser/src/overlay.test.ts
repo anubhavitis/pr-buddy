@@ -1,20 +1,31 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 import { flattenGuide, parseGuide } from "./guide";
 import {
+  commitsDockAction,
   fileSetSignature,
   groupRows,
   isCommitsPickerLabel,
-  shouldWalkUpForCommitsDock,
   isFileFilterField,
+  isFilesToolbarRow,
   isMergeStatusLabel,
   isOurMutationTarget,
   isToolbarCompanionLabel,
   orderedPaths,
   pathsFromTreeItems,
+  pathForDiffFragment,
   pathsToTree,
+  sha256Hex,
   shortStatus,
   shouldRedockPanel,
+  currentNotePath,
+  diffAnchor,
+  fileNoteCopy,
+  isDiffRegionId,
+  pathFromVisibleLabel,
+  pickNoteInsert,
 } from "./overlay";
 
 test("groupRows keeps adjacent files in the same section", () => {
@@ -64,12 +75,41 @@ test("isCommitsPickerLabel matches the Files commit filter", () => {
   assert.equal(isCommitsPickerLabel("Filter files..."), false);
 });
 
-test("shouldWalkUpForCommitsDock stops at a parent that also owns the file filter", () => {
-  assert.equal(shouldWalkUpForCommitsDock({ childCount: 1, hasFileFilter: false, hasFileTree: false }), true);
-  assert.equal(shouldWalkUpForCommitsDock({ childCount: 3, hasFileFilter: false, hasFileTree: false }), false);
-  assert.equal(shouldWalkUpForCommitsDock({ childCount: 1, hasFileFilter: true, hasFileTree: false }), false);
-  assert.equal(shouldWalkUpForCommitsDock({ childCount: 4, hasFileFilter: true, hasFileTree: false }), false);
-  assert.equal(shouldWalkUpForCommitsDock({ childCount: 2, hasFileFilter: false, hasFileTree: true }), false);
+test("isFilesToolbarRow is GitHub's horizontal files toolbar, not the All-commits cell", () => {
+  assert.equal(
+    isFilesToolbarRow({ component: "Stack", direction: "horizontal", hasTreeToggle: true }),
+    true,
+  );
+  assert.equal(
+    isFilesToolbarRow({ component: "Stack", direction: "vertical", hasTreeToggle: true }),
+    false,
+  );
+  assert.equal(
+    isFilesToolbarRow({ component: "Stack", direction: "horizontal", hasTreeToggle: false }),
+    false,
+  );
+  assert.equal(isFilesToolbarRow({ component: null, direction: "horizontal", hasTreeToggle: true }), false);
+});
+
+test("commitsDockAction walks the All-commits cell and inserts on the toolbar row", () => {
+  // hide-when-stuck-large cell: d-none + All commits button. Not the toolbar.
+  assert.equal(
+    commitsDockAction({ isFilesToolbarRow: false, hasFileFilter: false, hasFileTree: false }),
+    "walk",
+  );
+  // Outer Stack: tree toggle | Open | All commits | title. Insert as a peer of the cell.
+  assert.equal(
+    commitsDockAction({ isFilesToolbarRow: true, hasFileFilter: false, hasFileTree: false }),
+    "insert",
+  );
+  assert.equal(
+    commitsDockAction({ isFilesToolbarRow: false, hasFileFilter: true, hasFileTree: false }),
+    "abort",
+  );
+  assert.equal(
+    commitsDockAction({ isFilesToolbarRow: true, hasFileFilter: false, hasFileTree: true }),
+    "abort",
+  );
 });
 
 test("shortStatus hides raw CLI failures", () => {
@@ -94,6 +134,13 @@ test("shouldRedockPanel only when the pill left the toolbar row", () => {
   assert.equal(shouldRedockPanel(toolbar, toolbar), false);
   assert.equal(shouldRedockPanel(other, toolbar), true);
   assert.equal(shouldRedockPanel(null, toolbar), true);
+});
+
+test("toolbar panel clears the fixed fallback offset so it stays in the dock", () => {
+  const css = readFileSync(join(__dirname, "styles.css"), "utf8");
+  const block = css.match(/#pr-buddy-panel\.pr-buddy-panel--toolbar\s*\{[^}]+\}/)?.[0] ?? "";
+  assert.match(block, /top:\s*auto/);
+  assert.match(block, /right:\s*auto/);
 });
 
 test("isOurMutationTarget ignores our own remounts", () => {
@@ -163,6 +210,41 @@ test("pathsToTree nests by folder and keeps review numbers", () => {
       ],
     },
   ]);
+});
+
+test("diffAnchor is GitHub's #diff- plus sha256 of the path", () => {
+  const path = "apps/web/app/[locale]/(chrome)/[category]/layout.tsx";
+  assert.equal(sha256Hex(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  assert.equal(sha256Hex("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  assert.equal(sha256Hex(path), "0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4");
+  assert.equal(diffAnchor(path), "#diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4");
+  assert.equal(
+    pathForDiffFragment(
+      ["other.ts", path],
+      "#diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4",
+    ),
+    path,
+  );
+});
+
+test("file notes resolve the current /changes file and fall back to group summary", () => {
+  const path = "apps/web/app/[locale]/(chrome)/[category]/layout.tsx";
+  assert.equal(fileNoteCopy({ blurb: "entry", groupSummary: "types" }), "entry");
+  assert.equal(fileNoteCopy({ blurb: "", groupSummary: "read types first" }), "read types first");
+  assert.equal(pathFromVisibleLabel("layout.tsx", [path, "apps/web/other.ts"]), path);
+  assert.equal(
+    currentNotePath({
+      paths: ["a.ts", path],
+      hash: "#diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4",
+      activePath: "a.ts",
+    }),
+    path,
+  );
+  assert.equal(isDiffRegionId("diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4"), true);
+  assert.equal(isDiffRegionId("heading-_R_4amal9s5_"), false);
+  assert.equal(pickNoteInsert({ hasHeaderWrapper: true, hasDiffTable: true }), "inside-table-wrap");
+  assert.equal(pickNoteInsert({ hasHeaderWrapper: false, hasDiffTable: true }), "inside-table-wrap");
+  assert.equal(pickNoteInsert({ hasHeaderWrapper: true, hasDiffTable: false }), "after-header-wrapper");
 });
 
 test("isFileFilterField matches old and new Files panes", () => {
