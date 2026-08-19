@@ -17,21 +17,28 @@ No findings. No draft comments. The review stays yours.
   <img src="docs/flow.svg" width="720" alt="Open a Files tab, a local model orders the files, you write the review">
 </p>
 
-## Use (Mac, Apple Silicon)
+## Use (macOS or Linux)
 
-**Need:** Chrome, an M-series Mac, and at least one backend — [`claude`](https://docs.anthropic.com/en/docs/claude-code) CLI, [`grok`](https://docs.x.ai/docs) CLI, or [`mlx_lm.server`](https://github.com/ml-explore/mlx-lm) on loopback.
+**Need:** Chrome and at least one backend — [`claude`](https://docs.anthropic.com/en/docs/claude-code) CLI, [`grok`](https://docs.x.ai/docs) CLI, or [`mlx_lm.server`](https://github.com/ml-explore/mlx-lm) on loopback. `mlx` is Apple Silicon only; on Linux use `claude` or `grok`.
 
 No Go or npm.
 
-1. Download `pr-buddy-host-darwin-arm64` and `pr-buddy-extension.zip` from the [latest Release](https://github.com/anubhavitis/pr-buddy/releases/latest)
+1. Download `pr-buddy-extension.zip` and the host for your machine from the [latest Release](https://github.com/anubhavitis/pr-buddy/releases/latest):
+
+   | Machine | Host binary |
+   |---|---|
+   | Apple Silicon Mac | `pr-buddy-host-darwin-arm64` |
+   | Linux x86_64 | `pr-buddy-host-linux-amd64` |
+   | Linux aarch64 | `pr-buddy-host-linux-arm64` |
+
 2. Start the host and leave it running (loopback only, `127.0.0.1:17342`):
 
 ```sh
-chmod +x pr-buddy-host-darwin-arm64
-./pr-buddy-host-darwin-arm64
+chmod +x pr-buddy-host-<your-platform>
+./pr-buddy-host-<your-platform>
 ```
 
-If macOS says the binary is damaged or unverified: right-click it → **Open**.
+On macOS, if it says the binary is damaged or unverified: right-click it → **Open**.
 3. Unzip `pr-buddy-extension.zip`
 4. Chrome → `chrome://extensions` → **Developer mode** → **Load unpacked** → select `pr-buddy-extension/`
 5. Open a pull request **Files** tab (`/files` or `/changes`)
@@ -72,10 +79,15 @@ Load unpacked → `browser/`. After changing `browser/src`, reload the extension
 ```sh
 go test ./...
 cd browser && npm test && npm run compile
-./package-mac.sh              # dist/ host + extension zip
+./package-mac.sh              # dist/ darwin/arm64 host + extension zip
+./package-linux.sh            # dist/ linux amd64 + arm64 hosts
 ```
 
-Tag `v*` and push to cut a GitHub Release (`darwin/arm64` only).
+Both package scripts cross-compile (`CGO_ENABLED=0`), so either runs on either OS.
+
+Tag `v*` and push: `release-mac` and `release-linux` both fire and upload their
+host binaries to the same release. The extension zip is the same bytes
+everywhere, so only `release-mac` ships it.
 
 ## Site
 
