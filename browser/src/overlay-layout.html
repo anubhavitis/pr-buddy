@@ -112,12 +112,12 @@
           <span id="pr-buddy-status">12 files</span>
           <div id="pr-buddy-dialog" role="dialog" aria-label="pr-buddy">
             <fieldset class="pr-buddy-models">
-              <legend>Model</legend>
-              <div class="pr-buddy-seg">
-                <label class="pr-buddy-seg-item"><input type="radio" name="m1" checked /><span>claude</span></label>
-                <label class="pr-buddy-seg-item"><input type="radio" name="m1" /><span>grok</span></label>
-                <label class="pr-buddy-seg-item"><input type="radio" name="m1" /><span>mlx</span></label>
-              </div>
+              <legend>Model · claude</legend>
+              <select id="pr-buddy-model-pick">
+                <option value="">CLI default</option>
+                <option value="opus" selected>opus</option>
+                <option value="sonnet">sonnet</option>
+              </select>
             </fieldset>
             <button type="button" class="pr-buddy-refresh">Refresh order</button>
           </div>
@@ -129,10 +129,12 @@
       <div class="sidebar">
         <div class="filter">Filter files</div>
         <div id="pr-buddy-tree">
+          <div class="pr-buddy-tree-bar"><b>pr-buddy</b><span class="tag">read in this order</span></div>
           <ol class="pr-buddy-file-list">
+            <li class="pr-buddy-group">Contracts</li>
             <li>
               <a class="pr-buddy-file is-active is-edited" href="#diff-1" data-path="apps/web/lib/routing.ts" title="apps/web/lib/routing.ts · edited">
-                <span class="pr-buddy-file-n">1</span>
+                <span class="pr-buddy-file-n">01<span class="pr-buddy-file-delta is-up">▲2</span></span>
                 <svg class="pr-buddy-file-kind is-edited" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg>
                 <span class="pr-buddy-file-text">
                   <span class="pr-buddy-file-path">routing.ts</span>
@@ -142,7 +144,7 @@
             </li>
             <li>
               <a class="pr-buddy-file is-added" href="#diff-2" data-path="apps/web/lib/bare-id.ts" title="apps/web/lib/bare-id.ts · created">
-                <span class="pr-buddy-file-n">2</span>
+                <span class="pr-buddy-file-n">02<span class="pr-buddy-file-delta is-up">▲2</span></span>
                 <svg class="pr-buddy-file-kind is-added" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.75 1h10.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1Zm10.5 1.5H2.75a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25ZM8 4a.75.75 0 0 1 .75.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5A.75.75 0 0 1 8 4Z"/></svg>
                 <span class="pr-buddy-file-text">
                   <span class="pr-buddy-file-path">bare-id.ts</span>
@@ -150,9 +152,10 @@
                 </span>
               </a>
             </li>
+            <li class="pr-buddy-group">Wiring</li>
             <li>
               <a class="pr-buddy-file is-deleted" href="#diff-3" title="layout.tsx · deleted">
-                <span class="pr-buddy-file-n">3</span>
+                <span class="pr-buddy-file-n">03<span class="pr-buddy-file-delta is-down">▼4</span></span>
                 <svg class="pr-buddy-file-kind is-deleted" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.25 1c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 15H2.75A1.75 1.75 0 0 1 1 13.25V2.75C1 1.784 1.784 1 2.75 1ZM2.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25Zm8.5 6.25h-6.5a.75.75 0 0 1 0-1.5h6.5a.75.75 0 0 1 0 1.5Z"/></svg>
                 <span class="pr-buddy-file-text">
                   <span class="pr-buddy-file-path">layout.tsx</span>
@@ -165,6 +168,9 @@
       </div>
 
       <div class="diff" id="diff-0f52acc01edfb4f29f5e6e18ad88dda053b8a236a97ac1851c3e7b4f8696e6e4">
+        <div data-diff-header-wrapper="true">
+          <h3 style="margin:0;font-size:13px"><code>apps/web/lib/routing.ts</code></h3>
+        </div>
         <div class="pr-buddy-file-note" data-path="apps/web/lib/routing.ts">
           <button type="button" class="pr-buddy-file-note-chip" aria-label="Buddy review" aria-expanded="true">👀</button>
           <div class="pr-buddy-file-note-card">
@@ -175,9 +181,6 @@
             </div>
             <div class="pr-buddy-file-note-body">The chrome wrapper for the newly overloaded category segment. Read this before the route helpers.</div>
           </div>
-        </div>
-        <div data-diff-header-wrapper="true">
-          <h3 style="margin:0;font-size:13px"><code>apps/web/lib/routing.ts</code></h3>
         </div>
         <div class="table-wrap">
           <table aria-label="Diff for: apps/web/lib/routing.ts">

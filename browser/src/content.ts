@@ -3,6 +3,7 @@ import {
   diffAnchor,
   fileNoteCopy,
   fileSetSignature,
+  formatRank,
   noteShouldBeOpen,
   findFileTreeHost,
   isDiffRegionId,
@@ -17,20 +18,32 @@ import {
   diffsNeedReorder,
   fileRowLabel,
   firstCommonAncestor,
+  groupRows,
   hostUnder,
+  overlayNeedsRemount,
   pathForDiffFragment,
   pathFromVisibleLabel,
   pathsFromTreeItems,
   pickNoteInsert,
   placeBesideCommitsPicker,
   placeBeforeMergeStatus,
+  rankMove,
   readTreeItems,
   shortStatus,
   shouldReuseGuide,
+  snapshotNativeOrder,
   wantedDiffOrder,
 } from "./overlay";
+import { fillModelControl, modelsForBackend, type ModelsResponse } from "./models";
 import { buildPrompt } from "./prompt";
-import { defaultSettings, type Backend, type Settings } from "./settings";
+import {
+  defaultSettings,
+  modelLabel,
+  modelSettingKey,
+  normalizeSettings,
+  selectedModel,
+  type Settings,
+} from "./settings";
 import {
   collectFilePathsFromDOM,
   findHeadSHAFromDOM,
@@ -45,6 +58,7 @@ let scheduled = 0;
 let lastKey = "";
 let lastRows: OrderedFile[] | null = null;
 let lastFiles: string[] = [];
+let lastNativeOrder: string[] = [];
 let lastStatus = "";
 
 let dialogOpen = false;
@@ -59,6 +73,7 @@ function tick(): void {
     lastKey = "";
     lastRows = null;
     lastFiles = [];
+    lastNativeOrder = [];
     lastStatus = "";
     lastActivePath = "";
     closedNotes.clear();
@@ -71,6 +86,7 @@ function tick(): void {
     lastKey = "";
     lastRows = null;
     lastFiles = [];
+    lastNativeOrder = [];
     fileObserver?.disconnect();
     setStatus("open the Files changed tab");
     return;
@@ -82,6 +98,15 @@ function tick(): void {
 function schedule(): void {
   window.clearTimeout(scheduled);
   scheduled = window.setTimeout(tick, 250);
+}
+
+function nativeOrderFromPage(files: string[]): string[] {
+  const allowed = new Set(files);
+  const host = findFileTreeHost(document);
+  const fromTree = host
+    ? pathsFromTreeItems(readTreeItems(host)).filter((path) => allowed.has(path))
+    : [];
+  return fromTree.length > 0 ? fromTree : files;
 }
 
 function currentFiles(): string[] {
@@ -106,6 +131,7 @@ async function loadAndApply(force: boolean): Promise<void> {
     setStatus("waiting for file list…");
     return;
   }
+  lastNativeOrder = snapshotNativeOrder(lastNativeOrder, nativeOrderFromPage(files));
   const headSHA = findHeadSHAFromDOM(document);
   const key = `${id.owner}/${id.repo}#${id.number}:${headSHA || "no-sha"}:${fileSetSignature(files)}`;
   if (!force && lastRows && shouldReuseGuide(lastFiles, files)) {
@@ -116,6 +142,9 @@ async function loadAndApply(force: boolean): Promise<void> {
   else setStatus(force ? "reordering…" : "ordering…");
   applying = true;
   try {
+    const settings = ((await chrome.runtime.sendMessage({ type: "getSettings" })) as Settings) ?? defaultSettings;
+    const label = modelLabel(settings);
+    setStatus(force ? `reordering with ${label}…` : `ordering with ${label}…`);
     const res = (await chrome.runtime.sendMessage({
       type: "complete",
       owner: id.owner,
@@ -131,7 +160,7 @@ async function loadAndApply(force: boolean): Promise<void> {
         files: files.map((path) => ({ path })),
       }),
       force,
-    })) as { ok: boolean; text?: string; error?: string; cached?: boolean };
+    })) as { ok: boolean; text?: string; error?: string; cached?: boolean; backend?: string; model?: string };
     if (!res?.ok || !res.text) {
       setStatus(res?.error || "host offline — start pr-buddy-host");
       return;
@@ -141,7 +170,8 @@ async function loadAndApply(force: boolean): Promise<void> {
     lastKey = key;
     lastFiles = files;
     applyOverlay(rows);
-    setStatus(res.cached ? `${rows.length} files · cached` : `${rows.length} files`);
+    const used = (res.model || res.backend || label).trim();
+    setStatus(res.cached ? `${used} · ${rows.length} files · cached` : `${used} · ${rows.length} files`);
   } catch (err) {
     setStatus(err instanceof Error ? err.message : String(err));
   } finally {
@@ -155,8 +185,14 @@ function applyOverlay(rows: OrderedFile[]): void {
   const paths = orderedPaths(rows);
   const changes = collectFileChanges(document, paths);
   const sig = paths.join("\n");
-  if (!tree || !host || !host.contains(tree) || tree.dataset.order !== sig) renderTree(rows, changes);
-  else {
+  if (
+    !tree ||
+    !host ||
+    overlayNeedsRemount(tree.parentElement, host) ||
+    tree.dataset.order !== sig
+  ) {
+    renderTree(rows, changes, host);
+  } else {
     hideNativeTrees(host);
     paintFileChanges(tree, changes);
   }
@@ -181,8 +217,7 @@ function hideNativeTrees(host: Element): void {
   }
 }
 
-function renderTree(rows: OrderedFile[], changes: Map<string, FileChange>): void {
-  const host = findFileTreeHost(document);
+function renderTree(rows: OrderedFile[], changes: Map<string, FileChange>, host = findFileTreeHost(document)): void {
   if (!host) return;
   hideNativeTrees(host);
 
@@ -191,7 +226,15 @@ function renderTree(rows: OrderedFile[], changes: Map<string, FileChange>): void
   tree.id = "pr-buddy-tree";
   tree.dataset.order = orderedPaths(rows).join("\n");
   tree.replaceChildren();
-  tree.append(renderFileList(rows, changes));
+  const heading = document.createElement("div");
+  heading.className = "pr-buddy-tree-bar";
+  const brand = document.createElement("b");
+  brand.textContent = "pr-buddy";
+  const tag = document.createElement("span");
+  tag.className = "tag";
+  tag.textContent = "read in this order";
+  heading.append(brand, tag);
+  tree.append(heading, renderFileList(rows, changes, lastNativeOrder));
   syncActiveFromHash();
   if (lastActivePath) setActiveTreePath(lastActivePath);
   if (host.contains(tree)) return;
@@ -226,7 +269,7 @@ function paintFileRow(a: HTMLElement, path: string, change: FileChange): void {
   const existing = a.querySelector(".pr-buddy-file-kind");
   const icon = changeIcon(change);
   if (existing) existing.replaceWith(icon);
-  else a.querySelector(".pr-buddy-file-n")?.insertAdjacentElement("afterend", icon);
+  else a.querySelector(".pr-buddy-file-text")?.insertAdjacentElement("beforebegin", icon);
 }
 
 function paintFileChanges(tree: Element, changes: Map<string, FileChange>): void {
@@ -238,41 +281,60 @@ function paintFileChanges(tree: Element, changes: Map<string, FileChange>): void
   }
 }
 
-function renderFileList(rows: OrderedFile[], changes: Map<string, FileChange>): HTMLOListElement {
+function renderFileList(
+  rows: OrderedFile[],
+  changes: Map<string, FileChange>,
+  nativeOrder: string[],
+): HTMLOListElement {
   const list = document.createElement("ol");
   list.className = "pr-buddy-file-list";
-  rows.forEach((file, i) => {
-    const li = document.createElement("li");
-    const a = document.createElement("a");
-    a.className = "pr-buddy-file";
-    a.href = diffAnchor(file.path);
-    a.dataset.path = file.path;
-    a.addEventListener("click", (ev) => {
-      ev.preventDefault();
-      setActiveTreePath(file.path, true);
-      goToDiff(file.path);
-    });
-    const n = document.createElement("span");
-    n.className = "pr-buddy-file-n";
-    n.textContent = String(i + 1);
-    const label = fileRowLabel(file.path);
-    const text = document.createElement("span");
-    text.className = "pr-buddy-file-text";
-    const name = document.createElement("span");
-    name.className = "pr-buddy-file-path";
-    name.textContent = label.name;
-    text.append(name);
-    if (label.dir) {
-      const dir = document.createElement("span");
-      dir.className = "pr-buddy-file-dir";
-      dir.textContent = label.dir;
-      text.append(dir);
+  let index = 0;
+  for (const section of groupRows(rows)) {
+    const head = document.createElement("li");
+    head.className = "pr-buddy-group";
+    head.textContent = section.name;
+    list.append(head);
+    for (const file of section.files) {
+      const i = index++;
+      const li = document.createElement("li");
+      const a = document.createElement("a");
+      a.className = "pr-buddy-file";
+      a.href = diffAnchor(file.path);
+      a.dataset.path = file.path;
+      a.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        setActiveTreePath(file.path, true);
+        goToDiff(file.path);
+      });
+      const n = document.createElement("span");
+      n.className = "pr-buddy-file-n";
+      n.textContent = formatRank(i + 1);
+      const move = rankMove(nativeOrder, file.path, i);
+      const delta = document.createElement("span");
+      delta.className = "pr-buddy-file-delta";
+      if (move.dir === "up" || move.dir === "down") {
+        delta.classList.add(`is-${move.dir}`);
+        delta.textContent = `${move.dir === "up" ? "▲" : "▼"}${Math.abs(move.steps)}`;
+      }
+      const label = fileRowLabel(file.path);
+      const text = document.createElement("span");
+      text.className = "pr-buddy-file-text";
+      const name = document.createElement("span");
+      name.className = "pr-buddy-file-path";
+      name.textContent = label.name;
+      text.append(name);
+      if (label.dir) {
+        const dir = document.createElement("span");
+        dir.className = "pr-buddy-file-dir";
+        dir.textContent = label.dir;
+        text.append(dir);
+      }
+      a.append(n, delta, text);
+      paintFileRow(a, file.path, fileChangeOf(file.path, changes));
+      li.append(a);
+      list.append(li);
     }
-    a.append(n, text);
-    paintFileRow(a, file.path, fileChangeOf(file.path, changes));
-    li.append(a);
-    list.append(li);
-  });
+  }
   return list;
 }
 
@@ -565,9 +627,11 @@ function mountPanel(): void {
     document.body.append(panel);
     wirePanel(panel);
   }
-  const docked =
-    placeBesideCommitsPicker(panel, document) || placeBeforeMergeStatus(panel, document);
-  panel.classList.toggle("pr-buddy-panel--toolbar", docked);
+  if (!dialogOpen) {
+    const docked =
+      placeBesideCommitsPicker(panel, document) || placeBeforeMergeStatus(panel, document);
+    panel.classList.toggle("pr-buddy-panel--toolbar", docked);
+  }
 }
 
 function wirePanel(panel: HTMLElement): void {
@@ -579,7 +643,11 @@ function wirePanel(panel: HTMLElement): void {
   });
 }
 
+let dialogGen = 0;
+let ignoreDialogDismissUntil = 0;
+
 function closeDialog(): void {
+  dialogGen += 1;
   dialogOpen = false;
   document.getElementById("pr-buddy-dialog")?.remove();
 }
@@ -591,57 +659,57 @@ async function toggleDialog(): Promise<void> {
   }
   const panel = document.getElementById("pr-buddy-panel");
   if (!panel) return;
-  const settings = (await chrome.runtime.sendMessage({ type: "getSettings" })) as Settings;
-  const s = settings ?? defaultSettings;
+  const gen = ++dialogGen;
+  dialogOpen = true;
+  ignoreDialogDismissUntil = Date.now() + 400;
+  let settings: Settings;
+  try {
+    settings = (await chrome.runtime.sendMessage({ type: "getSettings" })) as Settings;
+  } catch {
+    if (gen === dialogGen) dialogOpen = false;
+    return;
+  }
+  if (gen !== dialogGen) return;
+  let live = normalizeSettings(settings ?? defaultSettings);
   const dialog = document.createElement("div");
   dialog.id = "pr-buddy-dialog";
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-label", "pr-buddy");
-  const backends: Backend[] = ["claude", "grok", "mlx"];
   const field = document.createElement("fieldset");
   field.className = "pr-buddy-models";
   const legend = document.createElement("legend");
-  legend.textContent = "Model";
+  legend.textContent = `Model · ${live.backend}`;
   field.append(legend);
-  const seg = document.createElement("div");
-  seg.className = "pr-buddy-seg";
-  for (const id of backends) {
-    const label = document.createElement("label");
-    label.className = "pr-buddy-seg-item";
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "pr-buddy-backend";
-    input.value = id;
-    input.checked = s.backend === id;
-    input.addEventListener("change", () => {
-      void chrome.runtime.sendMessage({ type: "setSettings", settings: { backend: id } }).then(() => {
-        showMlx(dialog, id === "mlx");
-      });
+  const modelPick = document.createElement("select");
+  modelPick.id = "pr-buddy-model-pick";
+  const modelInput = document.createElement("input");
+  modelInput.id = "pr-buddy-model";
+  modelInput.type = "text";
+  const emptyLabel = live.backend === "mlx" ? "model id" : "CLI default";
+  fillModelControl({
+    select: modelPick,
+    input: modelInput,
+    models: modelsForBackend(live.backend),
+    value: selectedModel(live),
+    emptyLabel,
+  });
+  const saveModel = (value: string) => {
+    const key = modelSettingKey(live.backend);
+    live = { ...live, [key]: value };
+    void chrome.runtime.sendMessage({ type: "setSettings", settings: { [key]: value } });
+  };
+  modelInput.addEventListener("change", () => saveModel(modelInput.value));
+  modelPick.addEventListener("change", () => saveModel(modelPick.value));
+  field.append(modelPick, modelInput);
+  void chrome.runtime.sendMessage({ type: "listModels", backend: live.backend }).then((res: ModelsResponse) => {
+    fillModelControl({
+      select: modelPick,
+      input: modelInput,
+      models: modelsForBackend(live.backend, res?.ok ? res.models ?? [] : []),
+      value: selectedModel(live),
+      emptyLabel,
     });
-    const text = document.createElement("span");
-    text.textContent = id;
-    label.append(input, text);
-    seg.append(label);
-  }
-  field.append(seg);
-  const mlx = document.createElement("div");
-  mlx.id = "pr-buddy-mlx";
-  mlx.hidden = s.backend !== "mlx";
-  const url = document.createElement("input");
-  url.type = "text";
-  url.placeholder = "http://127.0.0.1:8080/v1";
-  url.value = s.mlxUrl;
-  url.addEventListener("change", () => {
-    void chrome.runtime.sendMessage({ type: "setSettings", settings: { mlxUrl: url.value } });
   });
-  const model = document.createElement("input");
-  model.type = "text";
-  model.placeholder = "model id";
-  model.value = s.mlxModel;
-  model.addEventListener("change", () => {
-    void chrome.runtime.sendMessage({ type: "setSettings", settings: { mlxModel: model.value } });
-  });
-  mlx.append(url, model);
   const refresh = document.createElement("button");
   refresh.type = "button";
   refresh.className = "pr-buddy-refresh";
@@ -651,15 +719,11 @@ async function toggleDialog(): Promise<void> {
     closeDialog();
     void loadAndApply(true);
   });
-  dialog.append(field, mlx, refresh);
+  dialog.append(field, refresh);
   dialog.addEventListener("click", (ev) => ev.stopPropagation());
+  dialog.classList.add("is-entering");
+  dialog.addEventListener("animationend", () => dialog.classList.remove("is-entering"), { once: true });
   panel.append(dialog);
-  dialogOpen = true;
-}
-
-function showMlx(dialog: HTMLElement, on: boolean): void {
-  const mlx = dialog.querySelector("#pr-buddy-mlx");
-  if (mlx instanceof HTMLElement) mlx.hidden = !on;
 }
 
 function setStatus(text: string): void {
@@ -687,6 +751,7 @@ if (!boot.__prBuddyInstalled) {
   window.addEventListener("hashchange", schedule);
   document.addEventListener("click", (ev) => {
     if (!dialogOpen) return;
+    if (Date.now() < ignoreDialogDismissUntil) return;
     const t = ev.target as Element | null;
     if (t?.closest("#pr-buddy-panel, #pr-buddy-dialog")) return;
     closeDialog();
@@ -695,6 +760,15 @@ if (!boot.__prBuddyInstalled) {
     if (ev.key === "Escape") closeDialog();
   });
   new MutationObserver((muts) => {
+    if (lastRows) {
+      const host = findFileTreeHost(document);
+      const tree = document.getElementById("pr-buddy-tree");
+      if (host && tree && overlayNeedsRemount(tree.parentElement, host)) {
+        applyOverlay(lastRows);
+      } else if (host) {
+        hideNativeTrees(host);
+      }
+    }
     if (applying) return;
     for (const m of muts) {
       const el = m.target instanceof Element ? m.target : m.target.parentElement;

@@ -4,19 +4,19 @@
     <meta charset="utf-8" />
     <link rel="stylesheet" href="out/popup.css" />
   </head>
-  <body class="m-0 w-[280px] bg-paper p-3.5 font-sans text-[13px] leading-snug text-ink dark:bg-[#1a1410] dark:text-[#f6ede3]">
-    <h1 class="mb-3 mt-0 flex items-center gap-2 text-[13px] font-semibold tracking-tight">
-      <img src="icons/icon32.png" alt="" class="h-[18px] w-[18px] rounded-[5px] ring-1 ring-owl/40" />
+  <body class="m-0 w-[300px] bg-bg p-3.5 font-sans text-[13px] leading-snug text-ink">
+    <h1 class="mb-3 mt-0 flex items-center gap-2 font-mono text-[13px] font-semibold tracking-tight text-add">
+      <img src="icons/icon32.png" alt="" class="h-[18px] w-[18px] rounded-[5px]" />
       pr-buddy
     </h1>
-    <p id="page" class="mb-2 mt-0 text-[12px] text-ink/60 dark:text-[#f6ede3]/60">checking page…</p>
-    <p id="host" class="mb-3 mt-0 text-[12px]">checking host…</p>
+    <p id="page" class="mb-2 mt-0 font-mono text-[12px] text-muted">checking page…</p>
+    <p id="host" class="mb-3 mt-0 font-mono text-[12px]">checking host…</p>
     <p class="mb-2 mt-0">
       <label class="flex items-center justify-between gap-2">
-        <span class="text-[10px] font-semibold uppercase tracking-[0.08em] text-ink/55 dark:text-[#f6ede3]/55">backend</span>
+        <span class="font-mono text-[10.5px] font-semibold uppercase tracking-[0.11em] text-muted">backend</span>
         <select
           id="backend"
-          class="rounded-lg border border-owl/30 bg-white px-2 py-1 text-[12px] text-ink transition hover:border-owl focus:border-owl focus:outline-none focus:ring-2 focus:ring-owl/25 dark:bg-[#2a1c12] dark:text-[#f6ede3]"
+          class="rounded-lg border border-line bg-raise px-2 py-1 font-mono text-[12px] text-ink transition hover:border-add focus:border-add focus:outline-none"
         >
           <option value="claude">claude</option>
           <option value="grok">grok</option>
@@ -24,24 +24,38 @@
         </select>
       </label>
     </p>
+    <p class="mb-2 mt-0">
+      <label class="grid gap-1">
+        <span class="font-mono text-[10.5px] font-semibold uppercase tracking-[0.11em] text-muted">model</span>
+        <select
+          id="model-pick"
+          class="rounded-lg border border-line bg-raise px-2 py-1.5 font-mono text-[12px] text-ink transition hover:border-add focus:border-add focus:outline-none"
+          hidden
+        ></select>
+        <input
+          id="model"
+          type="text"
+          placeholder="CLI default"
+          class="box-border w-full rounded-lg border border-line bg-raise px-2 py-1.5 font-mono text-[12px] text-ink transition focus:border-add focus:outline-none"
+        />
+      </label>
+    </p>
     <p id="mlx-fields" class="mb-2 mt-0 grid gap-1.5" hidden>
       <input
         id="mlx-url"
         type="text"
         placeholder="http://127.0.0.1:8080/v1"
-        class="box-border w-full rounded-lg border border-owl/30 bg-white px-2 py-1.5 text-[12px] text-ink transition focus:border-owl focus:outline-none focus:ring-2 focus:ring-owl/25 dark:bg-[#2a1c12] dark:text-[#f6ede3]"
-      />
-      <input
-        id="mlx-model"
-        type="text"
-        placeholder="model id"
-        class="box-border w-full rounded-lg border border-owl/30 bg-white px-2 py-1.5 text-[12px] text-ink transition focus:border-owl focus:outline-none focus:ring-2 focus:ring-owl/25 dark:bg-[#2a1c12] dark:text-[#f6ede3]"
+        class="box-border w-full rounded-lg border border-line bg-raise px-2 py-1.5 font-mono text-[12px] text-ink transition focus:border-add focus:outline-none"
       />
     </p>
+    <details class="mb-3 mt-0">
+      <summary class="cursor-pointer font-mono text-[10.5px] font-semibold uppercase tracking-[0.11em] text-muted">View prompt format</summary>
+      <pre id="prompt" class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-sunk p-2 font-mono text-[10px] leading-snug text-ink"></pre>
+    </details>
     <button
       type="button"
       id="reload"
-      class="mt-1 w-full cursor-pointer rounded-lg bg-owl px-2 py-1.5 text-[12px] font-semibold text-paper shadow-[0_6px_14px_color-mix(in_srgb,var(--color-owl)_32%,transparent)] transition hover:-translate-y-px hover:bg-owl-bright active:translate-y-0 active:scale-[0.98]"
+      class="mt-1 w-full cursor-pointer rounded-lg border border-add bg-add px-2 py-1.5 font-mono text-[12px] font-semibold text-bg transition hover:-translate-y-px hover:opacity-90 active:translate-y-0"
     >
       reload this tab
     </button>

@@ -14,36 +14,31 @@ export type PromptPR = {
   files: PromptFile[];
 };
 
-export function buildPrompt(pr: PromptPR): string {
-  const files = pr.files
-    .map((f) => {
-      const plus = f.additions != null ? `+${f.additions}` : "";
-      const minus = f.deletions != null ? `-${f.deletions}` : "";
-      const stats = [plus, minus].filter(Boolean).join(" ");
-      return stats ? `- ${f.path} ${stats}` : `- ${f.path}`;
-    })
-    .join("\n");
+export const PROMPT_TEMPLATE = `You are writing a reading order for a human reviewing a GitHub pull request.
 
-  const body = pr.body.trim() || "(no description)";
+Do not review the change. Do not list bugs. Order the files so the reviewer
+understands the shape of the change before they read the wiring.
 
-  return `You are ordering a pull request for a human reviewer on GitHub.
+How to group
+- 3 to 6 groups. Short names, two to four words (for example: Contracts, Then the host, Wiring).
+- Read order: contracts / types / public API first, then implementation, then wiring, then tests.
+- A group is files that should be read together, not a folder name.
+- Put danger (auth, data, money, concurrency) in the file blurb, not in the sort key.
 
-PR: ${pr.owner}/${pr.repo}#${pr.number}
-Title: ${pr.title}
+What to write
+- Group summary: one line on why this cluster comes here.
+- File blurb: two or three lines on what this file is doing in this PR.
+
+This pull request
+PR: {owner}/{repo}#{number}
+Title: {title}
 Description:
-${body}
+{description}
 
 Changed files:
-${files}
+{files}
 
-Produce a reading guide. Order files by what a reviewer must understand first,
-not by path. Sequence: contracts / types / entrypoints → implementation → wiring → tests.
-Put danger (auth, data, money, concurrency) in the per-file blurb, not the sort key.
-
-Each file gets a 2–3 line blurb: what this file is in this PR.
-Each group gets a short summary: why this cluster comes here.
-
-Respond with a single JSON object and nothing else:
+Reply with one JSON object and nothing else:
 
 {
   "groups": [
@@ -58,4 +53,27 @@ Respond with a single JSON object and nothing else:
 }
 
 Use only the paths listed above. Do not invent files. Do not report defects.`;
+
+export function promptTemplate(): string {
+  return PROMPT_TEMPLATE;
+}
+
+export function buildPrompt(pr: PromptPR): string {
+  const files = pr.files
+    .map((f) => {
+      const plus = f.additions != null ? `+${f.additions}` : "";
+      const minus = f.deletions != null ? `-${f.deletions}` : "";
+      const stats = [plus, minus].filter(Boolean).join(" ");
+      return stats ? `- ${f.path} ${stats}` : `- ${f.path}`;
+    })
+    .join("\n");
+
+  const body = pr.body.trim() || "(no description)";
+
+  return PROMPT_TEMPLATE.replaceAll("{owner}", pr.owner)
+    .replaceAll("{repo}", pr.repo)
+    .replaceAll("{number}", String(pr.number))
+    .replaceAll("{title}", pr.title)
+    .replaceAll("{description}", body)
+    .replaceAll("{files}", files);
 }

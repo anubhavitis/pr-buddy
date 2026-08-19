@@ -40,6 +40,43 @@ func TestCompleteClaudeUsesPrintModeWithoutTools(t *testing.T) {
 	if strings.Contains(line, "dangerously-skip-permissions") {
 		t.Fatal("must not skip permissions")
 	}
+	if strings.Contains(line, "--model") {
+		t.Fatal("empty model must not pass --model")
+	}
+}
+
+func TestCompleteClaudeIgnoresUndefinedModel(t *testing.T) {
+	fake := xexec.NewFake().RespondOK("claude", `{"groups":[]}`)
+	c := &Completer{Exec: fake}
+	if _, err := c.Complete(context.Background(), Request{
+		Backend: BackendClaude,
+		Prompt:  "order these files",
+		Model:   "undefined",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	line := fake.CommandLines()[0]
+	if strings.Contains(line, "--model") {
+		t.Fatalf("bogus model must not pass --model, got %q", line)
+	}
+}
+
+func TestCompleteClaudePassesModelWhenSet(t *testing.T) {
+	fake := xexec.NewFake().RespondOK("claude", `{"groups":[]}`)
+	c := &Completer{Exec: fake}
+	if _, err := c.Complete(context.Background(), Request{
+		Backend: BackendClaude,
+		Prompt:  "order these files",
+		Model:   "opus",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	line := fake.CommandLines()[0]
+	if !strings.Contains(line, "--model opus") && !strings.Contains(line, "--model\topus") {
+		if !strings.Contains(line, "--model") || !strings.Contains(line, "opus") {
+			t.Fatalf("command %q missing --model opus", line)
+		}
+	}
 }
 
 func TestGuideSchemaIsTheGrokContract(t *testing.T) {
@@ -75,6 +112,27 @@ func TestCompleteGrokUsesSingleTurn(t *testing.T) {
 	for _, want := range []string{"grok", "-p", "order these files", "--output-format", "json", "--json-schema", "--disable-web-search", "--permission-mode", "dontAsk"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("command %q missing %q", line, want)
+		}
+	}
+	if strings.Contains(line, " -m ") || strings.HasSuffix(line, " -m") {
+		t.Fatal("empty model must not pass -m")
+	}
+}
+
+func TestCompleteGrokPassesModelWhenSet(t *testing.T) {
+	fake := xexec.NewFake().RespondOK("grok", "ok")
+	c := &Completer{Exec: fake}
+	if _, err := c.Complete(context.Background(), Request{
+		Backend: BackendGrok,
+		Prompt:  "order these files",
+		Model:   "grok-4.6",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	line := fake.CommandLines()[0]
+	if !strings.Contains(line, "-m grok-4.6") && !strings.Contains(line, "-m\tgrok-4.6") {
+		if !strings.Contains(line, "-m") || !strings.Contains(line, "grok-4.6") {
+			t.Fatalf("command %q missing -m grok-4.6", line)
 		}
 	}
 }

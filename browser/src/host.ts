@@ -1,10 +1,11 @@
-import type { Settings } from "./settings";
+import { selectedModel, type Settings } from "./settings";
 
 export type CompleteRequest = {
   backend: string;
   prompt: string;
   mlx_url: string;
   mlx_model: string;
+  model: string;
 };
 
 export function completeRequest(settings: Settings, prompt: string): CompleteRequest {
@@ -13,5 +14,6 @@ export function completeRequest(settings: Settings, prompt: string): CompleteReq
     prompt,
     mlx_url: settings.mlxUrl,
     mlx_model: settings.mlxModel,
+    model: selectedModel(settings),
   };
 }

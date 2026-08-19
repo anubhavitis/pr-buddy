@@ -29,6 +29,7 @@ const (
 type Request struct {
 	Backend  Backend
 	Prompt   string
+	Model    string
 	MLXURL   string
 	MLXModel string
 }
@@ -52,15 +53,19 @@ func (c *Completer) Complete(ctx context.Context, req Request) (string, error) {
 	switch req.Backend {
 	case BackendClaude:
 		// Do not pass --bare: it skips keychain OAuth and forces ANTHROPIC_API_KEY.
-		return c.runCLI(ctx, "claude",
+		args := []string{
 			"-p",
 			"--output-format", "text",
 			"--tools", "",
 			"--permission-mode", "dontAsk",
-			req.Prompt,
-		)
+		}
+		if model := cliModel(req.Model); model != "" {
+			args = append(args, "--model", model)
+		}
+		args = append(args, req.Prompt)
+		return c.runCLI(ctx, "claude", args...)
 	case BackendGrok:
-		return c.runCLI(ctx, "grok",
+		args := []string{
 			"-p", req.Prompt,
 			"--output-format", "json",
 			"--json-schema", strings.TrimSpace(grokGuideSchema),
@@ -68,12 +73,24 @@ func (c *Completer) Complete(ctx context.Context, req Request) (string, error) {
 			"--permission-mode", "dontAsk",
 			"--max-turns", "1",
 			"--no-plan",
-		)
+		}
+		if model := cliModel(req.Model); model != "" {
+			args = append(args, "-m", model)
+		}
+		return c.runCLI(ctx, "grok", args...)
 	case BackendMLX:
 		return c.runMLX(ctx, req)
 	default:
 		return "", fmt.Errorf("unknown backend %q", req.Backend)
 	}
+}
+
+func cliModel(raw string) string {
+	model := strings.TrimSpace(raw)
+	if model == "" || model == "undefined" || model == "null" {
+		return ""
+	}
+	return model
 }
 
 func (c *Completer) runCLI(ctx context.Context, name string, args ...string) (string, error) {

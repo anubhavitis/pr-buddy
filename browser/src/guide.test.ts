@@ -124,7 +124,7 @@ test("cacheKey ignores file order and duplicates", () => {
   );
 });
 
-test("cacheKey changes when backend or head changes", () => {
+test("cacheKey changes when backend, model, or head changes", () => {
   const files = ["a.go"];
   const a = cacheKey({
     owner: "acme",
@@ -150,6 +150,16 @@ test("cacheKey changes when backend or head changes", () => {
     backend: "claude",
     files,
   });
+  const d = cacheKey({
+    owner: "acme",
+    repo: "widgets",
+    number: 4,
+    headSHA: "abc",
+    backend: "claude",
+    model: "opus",
+    files,
+  });
   assert.notEqual(a, b);
   assert.notEqual(a, c);
+  assert.notEqual(a, d);
 });

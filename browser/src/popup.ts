@@ -1,5 +1,14 @@
+import { fillModelControl, modelsForBackend, type ModelsResponse } from "./models";
 import { isFilesTab, parsePRURL } from "./pr";
-import { defaultSettings, type Settings } from "./settings";
+import { promptTemplate } from "./prompt";
+import {
+  defaultSettings,
+  modelSettingKey,
+  normalizeSettings,
+  selectedModel,
+  type Backend,
+  type Settings,
+} from "./settings";
 
 const page = document.getElementById("page")!;
 const host = document.getElementById("host")!;
@@ -21,13 +30,44 @@ void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
 const backend = document.getElementById("backend") as HTMLSelectElement;
 const mlxFields = document.getElementById("mlx-fields")!;
 const mlxUrl = document.getElementById("mlx-url") as HTMLInputElement;
-const mlxModel = document.getElementById("mlx-model") as HTMLInputElement;
+const model = document.getElementById("model") as HTMLInputElement;
+const modelPick = document.getElementById("model-pick") as HTMLSelectElement;
+const prompt = document.getElementById("prompt")!;
+prompt.textContent = promptTemplate();
 
-function showSettings(s: Settings): void {
-  backend.value = s.backend;
-  mlxUrl.value = s.mlxUrl;
-  mlxModel.value = s.mlxModel;
-  mlxFields.hidden = s.backend !== "mlx";
+let live = defaultSettings;
+
+function showSettings(raw: Settings): void {
+  live = normalizeSettings(raw);
+  backend.value = live.backend;
+  mlxUrl.value = live.mlxUrl;
+  mlxFields.hidden = live.backend !== "mlx";
+  paintModels(modelsForBackend(live.backend));
+  void loadModels();
+}
+
+function paintModels(models: { id: string; label?: string }[]): void {
+  fillModelControl({
+    select: modelPick,
+    input: model,
+    models,
+    value: selectedModel(live),
+    emptyLabel: live.backend === "mlx" ? "model id" : "CLI default",
+  });
+}
+
+function saveModel(value: string): void {
+  const key = modelSettingKey(live.backend);
+  live = { ...live, [key]: value };
+  void chrome.runtime.sendMessage({ type: "setSettings", settings: { [key]: value } });
+}
+
+async function loadModels(): Promise<void> {
+  const res = (await chrome.runtime.sendMessage({
+    type: "listModels",
+    backend: live.backend,
+  })) as ModelsResponse;
+  paintModels(modelsForBackend(live.backend, res?.ok ? res.models ?? [] : []));
 }
 
 function pingHost(url: string): void {
@@ -43,9 +83,8 @@ function pingHost(url: string): void {
 }
 
 void chrome.runtime.sendMessage({ type: "getSettings" }).then((s: Settings) => {
-  const settings = s ?? defaultSettings;
-  showSettings(settings);
-  pingHost(settings.hostUrl);
+  showSettings(s ?? defaultSettings);
+  pingHost(live.hostUrl);
 });
 
 backend.addEventListener("change", () => {
@@ -54,11 +93,13 @@ backend.addEventListener("change", () => {
     .then((s: Settings) => showSettings(s));
 });
 mlxUrl.addEventListener("change", () => {
-  void chrome.runtime.sendMessage({ type: "setSettings", settings: { mlxUrl: mlxUrl.value } });
+  live = { ...live, mlxUrl: mlxUrl.value };
+  void chrome.runtime.sendMessage({ type: "setSettings", settings: { mlxUrl: mlxUrl.value } }).then(() => {
+    if (live.backend === "mlx") void loadModels();
+  });
 });
-mlxModel.addEventListener("change", () => {
-  void chrome.runtime.sendMessage({ type: "setSettings", settings: { mlxModel: mlxModel.value } });
-});
+model.addEventListener("change", () => saveModel(model.value));
+modelPick.addEventListener("change", () => saveModel(modelPick.value));
 
 document.getElementById("reload")?.addEventListener("click", () => {
   void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {

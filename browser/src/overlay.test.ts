@@ -7,6 +7,9 @@ import {
   commitsDockAction,
   fileSetSignature,
   shouldReuseGuide,
+  formatRank,
+  rankMove,
+  snapshotNativeOrder,
   groupRows,
   isCommitsPickerLabel,
   isFileFilterField,
@@ -33,7 +36,44 @@ import {
   isDiffRegionId,
   pathFromVisibleLabel,
   pickNoteInsert,
+  overlayNeedsRemount,
 } from "./overlay";
+
+test("overlayNeedsRemount when GitHub paints a new file-tree host", () => {
+  const host = { id: "new" };
+  const old = { id: "old" };
+  assert.equal(overlayNeedsRemount(host, host), false);
+  assert.equal(overlayNeedsRemount(old, host), true);
+  assert.equal(overlayNeedsRemount(null, host), true);
+  assert.equal(overlayNeedsRemount(null, null), false);
+});
+
+test("formatRank is a two-digit review index", () => {
+  assert.equal(formatRank(1), "01");
+  assert.equal(formatRank(12), "12");
+});
+
+test("rankMove is GitHub position minus review position", () => {
+  const native = ["background.ts", "guide.test.ts", "guide.ts", "prompt.ts", "main.go", "host.go"];
+  assert.deepEqual(rankMove(native, "guide.ts", 0), { rank: 1, from: 3, steps: 2, dir: "up" });
+  assert.deepEqual(rankMove(native, "background.ts", 4), { rank: 5, from: 1, steps: -4, dir: "down" });
+  assert.deepEqual(rankMove(native, "guide.ts", 2), { rank: 3, from: 3, steps: 0, dir: "same" });
+  assert.deepEqual(rankMove(native, "missing.ts", 0), { rank: 1, from: 0, steps: 0, dir: "" });
+});
+
+test("snapshotNativeOrder keeps GitHub order across overlay paints", () => {
+  const github = ["z.ts", "a.ts", "m.ts"];
+  const first = snapshotNativeOrder([], github);
+  assert.deepEqual(first, github);
+  assert.deepEqual(snapshotNativeOrder(first, ["a.ts", "m.ts", "z.ts"]), github);
+  assert.deepEqual(snapshotNativeOrder(first, ["a.ts", "m.ts"]), github);
+});
+
+test("snapshotNativeOrder grows with new files and replaces a disjoint set", () => {
+  const prev = snapshotNativeOrder([], ["a.ts", "b.ts"]);
+  assert.deepEqual(snapshotNativeOrder(prev, ["a.ts", "b.ts", "c.ts"]), ["a.ts", "b.ts", "c.ts"]);
+  assert.deepEqual(snapshotNativeOrder(prev, ["x.ts", "y.ts"]), ["x.ts", "y.ts"]);
+});
 
 test("groupRows keeps adjacent files in the same section", () => {
   const guide = parseGuide(`{
@@ -126,6 +166,9 @@ test("shortStatus hides raw CLI failures", () => {
   );
   assert.equal(shortStatus("host offline — start pr-buddy-host"), "host offline");
   assert.equal(shortStatus("10 files · cached"), "10 files · cached");
+  assert.equal(shortStatus("opus · 12 files"), "opus · 12 files");
+  assert.equal(shortStatus("grok-4.6 · 12 files"), "grok-4.6 · 12 files");
+  assert.equal(shortStatus("grok: boom"), "grok failed");
 });
 
 test("fileSetSignature ignores order so a reorder does not retrigger", () => {

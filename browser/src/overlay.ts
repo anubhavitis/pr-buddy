@@ -13,6 +13,38 @@ export function orderedPaths(rows: OrderedFile[]): string[] {
   return rows.map((row) => row.path);
 }
 
+export function formatRank(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+export type RankMove = {
+  rank: number;
+  from: number;
+  steps: number;
+  dir: "up" | "down" | "same" | "";
+};
+
+export function rankMove(native: string[], path: string, reviewIndex: number): RankMove {
+  const rank = reviewIndex + 1;
+  const from = native.indexOf(path) + 1;
+  if (!from) return { rank, from: 0, steps: 0, dir: "" };
+  const steps = from - rank;
+  const dir = steps > 0 ? "up" : steps < 0 ? "down" : "same";
+  return { rank, from, steps, dir };
+}
+
+export function snapshotNativeOrder(prev: string[], seen: string[]): string[] {
+  if (seen.length === 0) return prev;
+  if (prev.length === 0) return [...seen];
+  if (fileSetSignature(prev) === fileSetSignature(seen)) return prev;
+  if (seen.every((path) => prev.includes(path))) return prev;
+  if (prev.every((path) => seen.includes(path))) {
+    const have = new Set(prev);
+    return [...prev, ...seen.filter((path) => !have.has(path))];
+  }
+  return [...seen];
+}
+
 export function wantedDiffOrder(have: string[], review: string[]): string[] {
   const present = new Set(have);
   return review.filter((path) => present.has(path));
@@ -287,9 +319,10 @@ export function shortStatus(raw: string): string {
   const t = raw.replace(/\s+/g, " ").trim();
   if (!t) return "";
   if (/Failed to fetch|NetworkError|host offline/i.test(t)) return "host offline";
-  if (/^claude\b|\bclaude\b.*exit status/i.test(t)) return "claude failed";
-  if (/^grok\b|\bgrok\b.*exit status/i.test(t)) return "grok failed";
-  if (/\bmlx\b|loopback/i.test(t)) return "mlx failed";
+  const failed = /exit status|\bfail|\berror\b|^claude:|^grok:|^mlx:/i.test(t);
+  if (failed && /\bclaude\b/i.test(t)) return "claude failed";
+  if (failed && /\bgrok\b/i.test(t)) return "grok failed";
+  if (failed && (/\bmlx\b/i.test(t) || /loopback/i.test(t))) return "mlx failed";
   if (t.length > 36) return `${t.slice(0, 33)}…`;
   return t;
 }
@@ -459,11 +492,19 @@ export function collectFileChanges(root: ParentNode, paths: string[]): Map<strin
   return out;
 }
 
+export function overlayNeedsRemount(treeParent: object | null, host: object | null): boolean {
+  if (!host) return false;
+  return treeParent !== host;
+}
+
 export function findFileTreeHost(root: ParentNode): Element | null {
-  const classic = root.querySelector("file-tree");
+  const classic = [...root.querySelectorAll("file-tree")].find((el) => !el.closest("#pr-buddy-tree"));
   if (classic) return classic;
 
-  const labeled = root.querySelector("[role='tree'][aria-label*='file' i], [role='tree'][aria-label*='File']");
+  const labeled = [...root.querySelectorAll("[role='tree']")].find((el) => {
+    if (el.closest("#pr-buddy-tree, #pr-buddy-panel")) return false;
+    return /file/i.test(el.getAttribute("aria-label") || "");
+  });
   if (labeled) return labeled.parentElement || labeled;
 
   const input = [...root.querySelectorAll("input")].find((el) =>
@@ -472,15 +513,16 @@ export function findFileTreeHost(root: ParentNode): Element | null {
   if (input) {
     let el: HTMLElement | null = input;
     while (el && el !== document.body && el !== document.documentElement) {
-      const tree = el.querySelector("[role='tree'], file-tree");
+      const tree = [...el.querySelectorAll("[role='tree'], file-tree")].find(
+        (node) => !node.closest("#pr-buddy-tree"),
+      );
       if (tree) return tree.parentElement || tree;
       el = el.parentElement;
     }
-    return input.parentElement?.parentElement || input.parentElement;
   }
 
-  const tree = root.querySelector("[role='tree']");
-  return tree ? tree.parentElement || tree : null;
+  const ours = root.querySelector("#pr-buddy-tree");
+  return ours?.parentElement ?? null;
 }
 
 export function nativeTreesIn(host: Element): Element[] {
