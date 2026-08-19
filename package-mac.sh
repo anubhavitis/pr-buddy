@@ -8,7 +8,8 @@ ext="$dist/pr-buddy-extension"
 host="$dist/pr-buddy-host-darwin-arm64"
 zip="$dist/pr-buddy-extension.zip"
 
-rm -rf "$dist"
+# Clear only what this script writes, so a package-linux.sh run survives.
+rm -rf "$ext" "$host" "$zip"
 mkdir -p "$ext"
 
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" \

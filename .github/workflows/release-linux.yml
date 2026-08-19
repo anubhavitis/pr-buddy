@@ -1,4 +1,4 @@
-name: release-mac
+name: release-linux
 
 on:
   push:
@@ -10,21 +10,17 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: browser/package-lock.json
-      - name: Package
-        run: ./package-mac.sh
-      # release-linux targets the same tag and either workflow may reach it
-      # first, so both create-or-join the same release.
+      - name: Build
+        run: ./package-linux.sh
+      # The extension zip is architecture-independent, so release-mac ships it
+      # and this job uploads host binaries only. Either workflow may reach the
+      # tag first, so both create-or-join the same release.
       - name: Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -35,6 +31,6 @@ jobs:
             sleep 5
           done
           gh release upload "$GITHUB_REF_NAME" \
-            dist/pr-buddy-host-darwin-arm64 \
-            dist/pr-buddy-extension.zip \
+            dist/pr-buddy-host-linux-amd64 \
+            dist/pr-buddy-host-linux-arm64 \
             --clobber
