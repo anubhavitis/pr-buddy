@@ -12,7 +12,6 @@ for arch in amd64 arm64; do
   host="$dist/pr-buddy-host-linux-$arch"
   CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags="-s -w" \
     -o "$host" ./cmd/pr-buddy-host
-  # A silently-wrong GOARCH would ship a binary nobody can run; catch it here.
   case "$arch" in
     amd64) want="x86-64" ;;
     arm64) want="ARM aarch64" ;;
